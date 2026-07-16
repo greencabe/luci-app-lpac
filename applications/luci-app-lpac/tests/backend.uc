@@ -261,7 +261,31 @@ reset();
 global.TEST_EXEC_REPLY = { code: 1, stdout: terminal('private detail', -1) };
 result = invoke('delete_profile', { iccid: '8912345678901234567' });
 check(!result.success && result.error == 'lpac_error' &&
-	!('data' in result), 'lpac error payload is not returned');
+	!('data' in result) && !('reason' in result),
+	'unknown lpac error payload is not returned');
+
+reset();
+global.TEST_EXEC_REPLY = {
+	code: 255,
+	stdout: terminal('profile not in disabled state', -1)
+};
+result = invoke('enable_profile', {
+	iccid: '8912345678901234567',
+	refresh: false
+});
+check(!result.success && result.error == 'lpac_error' &&
+	result.reason == 'profile_not_disabled' && !('data' in result),
+	'known profile errors are mapped to safe reason codes');
+
+reset();
+global.TEST_EXEC_REPLY = {
+	code: 255,
+	stdout: terminal('iccid or aid not found', -1)
+};
+result = invoke('delete_profile', { iccid: '8912345678901234567' });
+check(!result.success && result.error == 'lpac_error' &&
+	!('reason' in result) && !('data' in result),
+	'identifier hints are limited to operations that offer both identifiers');
 
 reset();
 let config = default_config();

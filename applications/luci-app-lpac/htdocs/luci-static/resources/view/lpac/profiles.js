@@ -47,11 +47,27 @@ return view.extend({
 	},
 
 	showStateModal: function(profile, enable) {
-		const id = profile.iccid || profile.isdpAid;
 		const label = profileLabel(profile);
+		const identifiers = [];
+
+		if (profile.iccid)
+			identifiers.push({ value: profile.iccid, label: _('ICCID') });
+
+		if (profile.isdpAid)
+			identifiers.push({ value: profile.isdpAid, label: _('ISD-P AID') });
+
+		const identifier = E('select', {
+			'id': 'lpac-profile-identifier',
+			'class': 'cbi-input-select'
+		}, identifiers.map(function(item, index) {
+			return E('option', {
+				'value': item.value,
+				'selected': index === 0 ? '' : null
+			}, [ item.label ]);
+		}));
 		const refresh = E('input', {
-			'type': 'checkbox',
-			'checked': true
+			'id': 'lpac-profile-refresh',
+			'type': 'checkbox'
 		});
 
 		ui.showModal(enable ? _('Enable profile') : _('Disable profile'), [
@@ -60,10 +76,25 @@ return view.extend({
 					? _('Enable profile “%s”?').format(label)
 					: _('Disable profile “%s”?').format(label)
 			]),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', {
+					'class': 'cbi-value-title',
+					'for': 'lpac-profile-identifier'
+				}, [ _('Profile identifier') ]),
+				E('div', { 'class': 'cbi-value-field' }, [
+					identifier,
+					E('div', { 'class': 'cbi-value-description' }, [
+						_('Try the ISD-P AID if this eUICC rejects an operation by ICCID.')
+					])
+				])
+			]),
 			E('label', { 'class': 'cbi-value' }, [
 				refresh,
 				' ',
 				_('Request an eUICC refresh')
+			]),
+			E('p', { 'class': 'cbi-value-description' }, [
+				_('Leave refresh disabled for the first attempt. Some eUICCs reject profile changes when the refresh flag is set.')
 			]),
 			E('p', { 'class': 'alert-message warning' }, [
 				_('Changing the active profile can interrupt mobile connectivity. Some modems require a separate SIM power cycle or reconnect afterwards.')
@@ -80,6 +111,7 @@ return view.extend({
 				E('button', {
 					'class': 'btn cbi-button-action important',
 					'click': ui.createHandlerFn(this, function() {
+						const id = identifier.value;
 						const operation = enable
 							? lpac.enableProfile(id, refresh.checked)
 							: lpac.disableProfile(id, refresh.checked);
@@ -182,7 +214,8 @@ return view.extend({
 				const actions = E('div', { 'class': 'nowrap' }, [
 					E('button', {
 						'class': 'btn cbi-button-action',
-						'disabled': isReadonlyView || !id || (!enabled && !disabled),
+						'disabled': isReadonlyView || !id ||
+							(!enabled && !disabled) || null,
 						'title': (!enabled && !disabled)
 							? _('The profile state does not allow this action') : '',
 						'click': ui.createHandlerFn(this, 'showStateModal', profile, !enabled)
@@ -190,7 +223,7 @@ return view.extend({
 					' ',
 					E('button', {
 						'class': 'btn cbi-button-edit',
-						'disabled': isReadonlyView || !profile.iccid,
+						'disabled': isReadonlyView || !profile.iccid || null,
 						'title': !profile.iccid
 							? _('An ICCID is required to rename this profile') : '',
 						'click': ui.createHandlerFn(this, 'showNicknameModal', profile)
@@ -198,7 +231,7 @@ return view.extend({
 					' ',
 					E('button', {
 						'class': 'btn cbi-button-negative',
-						'disabled': isReadonlyView || !disabled || !id,
+						'disabled': isReadonlyView || !disabled || !id || null,
 						'title': !disabled
 							? _('Only a disabled profile can be deleted') : '',
 						'click': ui.createHandlerFn(this, 'showDeleteModal', profile)

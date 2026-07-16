@@ -38,7 +38,7 @@ function checkbox(id, checked) {
 	return E('input', {
 		'id': id,
 		'type': 'checkbox',
-		'checked': checked,
+		'checked': checked ? '' : null,
 		'disabled': isReadonlyView
 	});
 }
@@ -164,7 +164,7 @@ return view.extend({
 		}, backends.map(function(name) {
 			return E('option', {
 				'value': name,
-				'selected': name === global.apdu_backend
+				'selected': name === global.apdu_backend ? '' : null
 			}, [ name ]);
 		}));
 

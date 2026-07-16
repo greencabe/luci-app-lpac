@@ -133,6 +133,21 @@ return baseclass.extend({
 		case 'transport_error':
 			return _('The lpac RPC request failed or timed out.');
 		case 'lpac_error':
+			switch (result.reason) {
+			case 'profile_not_found':
+				return _('lpac could not find that profile identifier. Try the other identifier if available.');
+			case 'profile_not_disabled':
+				return _('The profile is not in the disabled state required for enabling.');
+			case 'profile_not_enabled':
+				return _('The profile is not in the enabled state required for disabling.');
+			case 'policy_denied':
+				return _('The eUICC profile policy rejected this operation.');
+			case 'wrong_reenable':
+				return _('The eUICC rejected re-enabling this profile.');
+			case 'profile_internal_error':
+				return _('lpac reported an internal profile error. Try the other identifier and refresh setting.');
+			}
+
 			return Number.isInteger(result.code)
 				? _('lpac rejected the operation (code %d).').format(result.code)
 				: _('lpac rejected the operation.');

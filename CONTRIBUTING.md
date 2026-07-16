@@ -9,6 +9,7 @@ Run:
 
 ```sh
 applications/luci-app-lpac/tests/run-tests.sh
+node applications/luci-app-lpac/tests/frontend.js
 node --check applications/luci-app-lpac/htdocs/luci-static/resources/lpac.js
 git diff --check
 ```

@@ -93,7 +93,7 @@ return view.extend({
 					E('button', {
 						'class': 'btn cbi-button-negative',
 						'disabled': isReadonlyView || notification.seqNumber == null ||
-							notification.seqNumber === 0,
+							notification.seqNumber === 0 || null,
 						'title': notification.seqNumber === 0
 							? _('The packaged lpac cannot explicitly remove sequence 0 safely') : '',
 						'click': ui.createHandlerFn(this, 'showRemoveModal', notification)

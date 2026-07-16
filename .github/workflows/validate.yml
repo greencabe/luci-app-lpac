@@ -67,6 +67,8 @@ jobs:
             node --check "$file"
           done < <(find applications/luci-app-lpac/htdocs -type f -name '*.js' -print)
 
+          node applications/luci-app-lpac/tests/frontend.js
+
           python3 - <<'PY'
           import json
           from pathlib import Path

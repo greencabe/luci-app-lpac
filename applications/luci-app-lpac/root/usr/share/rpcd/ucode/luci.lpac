@@ -312,6 +312,30 @@ function operation_error(kind) {
 	}
 }
 
+function operation_reason(kind, data) {
+	if (type(data) != 'string')
+		return null;
+
+	switch (data) {
+	case 'iccid or aid not found':
+		return (kind == 'enable' || kind == 'disable')
+			? 'profile_not_found' : null;
+	case 'profile not in disabled state':
+		return kind == 'enable' ? 'profile_not_disabled' : null;
+	case 'profile not in enabled state':
+		return kind == 'disable' ? 'profile_not_enabled' : null;
+	case 'disallowed by policy':
+		return 'policy_denied';
+	case 'wrong profile reenabling':
+		return kind == 'enable' ? 'wrong_reenable' : null;
+	case 'internal error, maybe illegal iccid/aid coding':
+		return (kind == 'enable' || kind == 'disable')
+			? 'profile_internal_error' : null;
+	default:
+		return null;
+	}
+}
+
 function normalize_lpa(record, kind) {
 	const payload = record?.payload;
 
@@ -319,8 +343,15 @@ function normalize_lpa(record, kind) {
 		return failure('invalid_response',
 			'lpac did not return a valid result envelope.');
 
-	if (payload.code != 0)
-		return failure('lpac_error', operation_error(kind), payload.code);
+	if (payload.code != 0) {
+		const result = failure('lpac_error', operation_error(kind), payload.code);
+		const reason = operation_reason(kind, payload.data);
+
+		if (reason !== null)
+			result.reason = reason;
+
+		return result;
+	}
 
 	let data;
 

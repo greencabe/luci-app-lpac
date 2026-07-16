@@ -84,6 +84,7 @@ The package targets the LuCI `master` branch. Before submission, run:
 ```sh
 npx eslint applications/luci-app-lpac
 applications/luci-app-lpac/tests/run-tests.sh
+node applications/luci-app-lpac/tests/frontend.js
 git diff --check
 ./build/i18n-scan.pl applications/luci-app-lpac \
   > applications/luci-app-lpac/po/templates/lpac.pot
