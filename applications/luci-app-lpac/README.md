@@ -46,9 +46,11 @@ initial RPC methods are therefore limited to one-shot local eUICC operations;
 the application does not change this system-wide timeout.
 
 eUICC operations are launched through BusyBox `flock` on the same lock file
-used by configuration writes. The lock descriptor is inherited by the packaged
-lpac shim and compiled child process, so the eUICC remains serialized even if
-rpcd times out or stops collecting an oversized command response. This locking
+used by configuration writes. Before either use, the backend creates or repairs
+the lock as a regular root-owned mode-0600 file and rejects non-regular or
+non-root-owned paths. The lock descriptor is inherited by the packaged lpac
+shim and compiled child process, so the eUICC remains serialized even if rpcd
+times out or stops collecting an oversized command response. This locking
 layer does not perform modem, interface, or network orchestration.
 
 Serialization applies to calls made through this application. Direct CLI calls

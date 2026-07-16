@@ -43,9 +43,9 @@ function checkbox(id, checked) {
 	});
 }
 
-function selectedBackends(drivers, current) {
+function selectedBackends(drivers, current, discoveryAvailable) {
 	const reported = drivers.apdu || drivers.LPAC_APDU || [];
-	const values = reported.filter(function(name) {
+	const values = (discoveryAvailable ? reported : supportedBackends).filter(function(name) {
 		return supportedBackends.indexOf(name) !== -1;
 	});
 
@@ -91,8 +91,8 @@ return view.extend({
 			return;
 		}
 
-		if (!/^(?:[0-9A-Fa-f]{2}){1,16}$/.test(aid)) {
-			ui.addNotification(null, E('p', {}, [ _('The custom ISD-R AID must contain 2 to 32 hexadecimal characters and have an even length.') ]), 'error');
+		if (!/^[0-9A-Fa-f]{32}$/.test(aid)) {
+			ui.addNotification(null, E('p', {}, [ _('The custom ISD-R AID must contain exactly 32 hexadecimal characters.') ]), 'error');
 			return;
 		}
 
@@ -153,9 +153,10 @@ return view.extend({
 		const uqmi = config.uqmi || {};
 		const mbim = config.mbim || {};
 		const drivers = lpac.dataOr(driversResult, {});
-		const backends = selectedBackends(drivers, global.apdu_backend);
 		const driverListAvailable = !!(driversResult && driversResult.success &&
 			(drivers.apdu || drivers.LPAC_APDU || []).length);
+		const backends = selectedBackends(drivers, global.apdu_backend,
+			driverListAvailable);
 		const backendSelect = E('select', {
 			'id': 'lpac-apdu-backend',
 			'class': 'cbi-input-select',
@@ -179,10 +180,10 @@ return view.extend({
 				formRow(_('APDU backend'), backendSelect,
 					driverListAvailable
 						? _('Reported drivers are offered; an unreported current value is retained.')
-						: _('Driver discovery failed, so the current backend is retained.')),
+						: _('Driver availability could not be confirmed, so supported backend names are offered without verification.')),
 				formRow(_('Custom ISD-R AID'),
 					textInput('lpac-custom-aid', global.custom_isd_r_aid || 'A0000005591010FFFFFFFF8900000100', '', 32),
-					_('Hexadecimal application identifier used to select the eUICC ISD-R applet.')),
+					_('32-character hexadecimal application identifier used to select the eUICC ISD-R applet.')),
 				formRow(_('APDU debug'), checkbox('lpac-apdu-debug', global.apdu_debug === '1'),
 					_('Debug output can contain raw APDU data. Enable only for controlled troubleshooting.')),
 				formRow(_('HTTP debug'), checkbox('lpac-http-debug', global.http_debug === '1'),

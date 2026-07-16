@@ -9,7 +9,8 @@ traces, HTTP debug payloads, or provider credentials in a public report.
 The browser can invoke only typed `luci.lpac` methods. The backend validates
 arguments and UCI data, executes fixed binaries with argv arrays, normalizes
 lpac output, and serializes LuCI eUICC operations with
-`/var/run/luci-lpac.lock`.
+`/var/run/luci-lpac.lock`. The backend requires that lock to be a regular
+root-owned mode-0600 file and refuses unsafe lock-path objects.
 
 Direct CLI tools and other managers do not automatically participate in this
 lock. They must use the same lock voluntarily if run concurrently.

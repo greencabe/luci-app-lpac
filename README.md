@@ -64,7 +64,7 @@ opkg status lpac
 
 ## Development
 
-The repository runs source validation, 32 mocked rpcd/ucode checks, and SDK
+The repository runs source validation, 36 mocked rpcd/ucode checks, and SDK
 builds for OpenWrt 25.12.5 and snapshot. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for local commands and DCO requirements.
 

@@ -1,28 +1,34 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8"
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:179
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:186
+msgid ""
+"32-character hexadecimal application identifier used to select the eUICC ISD-"
+"R applet."
+msgstr ""
+
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:180
 msgid "APDU backend"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:186
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:187
 msgid "APDU debug"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:212
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:213
 msgid "AT backend"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:214
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:215
 msgid "AT debug"
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:81
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:168
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:171
 msgid "Actions"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:192
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:195
 msgid "An ICCID is required to rename this profile"
 msgstr ""
 
@@ -47,9 +53,9 @@ msgid "Backend status"
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:45
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:75
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:117
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:148
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:78
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:120
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:151
 msgid "Cancel"
 msgstr ""
 
@@ -59,22 +65,22 @@ msgid ""
 "require a separate SIM power cycle or reconnect afterwards."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:200
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:208
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:201
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:209
 msgid "Control device"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:183
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:184
 msgid "Custom ISD-R AID"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:187
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:188
 msgid ""
 "Debug output can contain raw APDU data. Enable only for controlled "
 "troubleshooting."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:189
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:190
 msgid ""
 "Debug output can contain sensitive HTTP payloads. Enable only for controlled "
 "troubleshooting."
@@ -85,16 +91,16 @@ msgid "Default SM-DP+ address"
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:20
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:155
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:202
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:158
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:205
 msgid "Delete"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:137
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:140
 msgid "Delete profile"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:153
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:156
 msgid "Deleting profile"
 msgstr ""
 
@@ -105,8 +111,8 @@ msgid ""
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:18
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:89
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:186
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:92
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:189
 msgid "Disable"
 msgstr ""
 
@@ -122,12 +128,14 @@ msgstr ""
 msgid "Disabled"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:85
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:88
 msgid "Disabling profile"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:182
-msgid "Driver discovery failed, so the current backend is retained."
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:183
+msgid ""
+"Driver availability could not be confirmed, so supported backend names are "
+"offered without verification."
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/overview.js:98
@@ -135,8 +143,8 @@ msgid "EID"
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:16
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:89
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:186
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:92
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:189
 msgid "Enable"
 msgstr ""
 
@@ -152,7 +160,7 @@ msgstr ""
 msgid "Enabled"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:85
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:88
 msgid "Enabling profile"
 msgstr ""
 
@@ -168,7 +176,7 @@ msgstr ""
 msgid "Free volatile memory"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:178
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:179
 msgid "General"
 msgstr ""
 
@@ -176,17 +184,12 @@ msgstr ""
 msgid "Grant access to the lpac eSIM manager"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:188
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:189
 msgid "HTTP debug"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:185
-msgid ""
-"Hexadecimal application identifier used to select the eUICC ISD-R applet."
-msgstr ""
-
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:79
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:166
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:169
 msgid "ICCID"
 msgstr ""
 
@@ -194,11 +197,11 @@ msgstr ""
 msgid "Install"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:102
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:105
 msgid "Leave empty to clear the nickname"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:207
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:208
 msgid "MBIM backend"
 msgstr ""
 
@@ -215,11 +218,11 @@ msgid ""
 "removes local notifications."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:110
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:113
 msgid "Nickname"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:217
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:220
 msgid "No eSIM profiles found."
 msgstr ""
 
@@ -231,7 +234,7 @@ msgstr ""
 msgid "No response from the lpac service."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:194
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:195
 msgid "No supported APDU drivers were reported by lpac."
 msgstr ""
 
@@ -254,7 +257,7 @@ msgstr ""
 msgid "Notifications"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:200
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:203
 msgid "Only a disabled profile can be deleted"
 msgstr ""
 
@@ -262,7 +265,7 @@ msgstr ""
 msgid "Operation"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:175
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:176
 msgid "Options not managed by this page are preserved when settings are saved."
 msgstr ""
 
@@ -270,15 +273,15 @@ msgstr ""
 msgid "Overview"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:139
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:142
 msgid "Permanently delete profile “%s”? This action cannot be undone."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:164
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:167
 msgid "Profile"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:218
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:221
 msgid "Profile data is unavailable."
 msgstr ""
 
@@ -296,19 +299,19 @@ msgstr ""
 msgid "Profiles"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:224
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:227
 msgid ""
 "Profiles are read directly from the eUICC using the configured lpac APDU "
 "backend."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:165
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:168
 msgid "Provider"
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/notifications.js:134
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/overview.js:116
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:236
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:239
 msgid "Refresh"
 msgstr ""
 
@@ -336,11 +339,11 @@ msgstr ""
 msgid "Removing notification"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:194
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:197
 msgid "Rename"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:181
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:182
 msgid "Reported drivers are offered; an unreported current value is retained."
 msgstr ""
 
@@ -356,8 +359,8 @@ msgstr ""
 msgid "SVN version"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:127
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:224
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:130
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:225
 msgid "Save"
 msgstr ""
 
@@ -373,11 +376,11 @@ msgstr ""
 msgid "Sequence"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:213
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:214
 msgid "Serial device"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:105
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:108
 msgid "Set profile nickname"
 msgstr ""
 
@@ -385,11 +388,11 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:167
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:170
 msgid "State"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:216
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:217
 msgid ""
 "The AT backend is timing-sensitive and may not support all profile "
 "operations on every modem."
@@ -400,16 +403,14 @@ msgid ""
 "The active uqmi backend currently requires a /dev/cdc-wdmN control device."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:203
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:204
 msgid ""
 "The current OpenWrt uqmi backend has known limitations with alternate "
 "control devices. Use the device actually associated with the eUICC."
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:95
-msgid ""
-"The custom ISD-R AID must contain 2 to 32 hexadecimal characters and have an "
-"even length."
+msgid "The custom ISD-R AID must contain exactly 32 hexadecimal characters."
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/lpac.js:134
@@ -460,7 +461,7 @@ msgstr ""
 msgid "The packaged lpac cannot explicitly remove sequence 0 safely"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:184
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:187
 msgid "The profile state does not allow this action"
 msgstr ""
 
@@ -468,7 +469,7 @@ msgstr ""
 msgid "The request contains an invalid argument."
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:173
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:174
 msgid ""
 "These values are stored in the official /etc/config/lpac file. Changes apply "
 "to the next lpac operation and do not restart any modem or network interface."
@@ -491,7 +492,7 @@ msgid "Unable to read lpac version"
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/overview.js:55
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:186
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:189
 msgid "Unavailable"
 msgstr ""
 
@@ -506,11 +507,11 @@ msgstr ""
 msgid "Unknown profile"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:123
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:126
 msgid "Updating nickname"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:209
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:210
 msgid "Use mbim-proxy"
 msgstr ""
 
@@ -524,7 +525,7 @@ msgstr ""
 msgid "eSIM Manager"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:222
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:225
 msgid "eSIM profiles"
 msgstr ""
 
@@ -536,11 +537,18 @@ msgstr ""
 msgid "eUICC notifications"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:142
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:145
 msgid ""
 "lpac creates a provider notification after deletion. Secure network "
 "notification processing is not available in this initial version, so the "
 "notification will remain pending on the eUICC."
+msgstr ""
+
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/profiles.js:72
+msgid ""
+"lpac may create a provider notification after this change. Secure network "
+"notification processing is not available in this version, so the "
+"notification may remain pending on the eUICC."
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/lpac.js:137
@@ -556,7 +564,7 @@ msgid "lpac returned an invalid or unexpected response."
 msgstr ""
 
 #: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:145
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:171
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:172
 msgid "lpac settings"
 msgstr ""
 
@@ -564,10 +572,10 @@ msgstr ""
 msgid "lpac version"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:199
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:200
 msgid "uqmi backend"
 msgstr ""
 
-#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:201
+#: applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/settings.js:202
 msgid "uqmi debug"
 msgstr ""

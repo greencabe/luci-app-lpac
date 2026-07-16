@@ -30,7 +30,13 @@ function reset() {
 	global.TEST_UCI = default_config();
 	global.TEST_UCI_LOAD_FAIL = false;
 	global.TEST_COMMIT_OK = true;
+	global.TEST_LOCK_EXISTS = false;
+	global.TEST_LOCK_TYPE = 'file';
+	global.TEST_LOCK_UID = 0;
+	global.TEST_LOCK_NLINK = 1;
+	global.TEST_LOCK_MODE = 0o600;
 	global.TEST_LOCK_OPEN_FAIL = false;
+	global.TEST_LOCK_CHMOD_FAIL = false;
 	global.TEST_LOCK_BUSY = false;
 	global.TEST_LOCK_CLOSED = false;
 	global.TEST_DEFER_THROW = false;
@@ -142,6 +148,29 @@ check(!result.success && result.error == 'invalid_response',
 	'chip information without a valid EID is rejected');
 
 reset();
+global.TEST_EXEC_REPLY = { code: 0, stdout: terminal([]) };
+result = invoke('list_profiles');
+check(result.success && global.TEST_LOCK_EXISTS &&
+	global.TEST_LOCK_MODE == 0o600 && global.TEST_CHMOD?.mode == 0o600,
+	'eUICC operations create and enforce a mode-0600 lock file');
+
+reset();
+global.TEST_LOCK_EXISTS = true;
+global.TEST_LOCK_MODE = 0o644;
+global.TEST_EXEC_REPLY = { code: 0, stdout: terminal([]) };
+result = invoke('list_profiles');
+check(result.success && global.TEST_LOCK_MODE == 0o600,
+	'a pre-existing permissive lock file is repaired before execution');
+
+reset();
+global.TEST_LOCK_EXISTS = true;
+global.TEST_LOCK_TYPE = 'symlink';
+result = invoke('list_profiles');
+check(!result.success && result.error == 'lock_failed' &&
+	global.TEST_LAST_CALL === null,
+	'non-regular lock paths are rejected before process execution');
+
+reset();
 global.TEST_EXEC_REPLY = {
 	code: 0,
 	stdout: terminal([
@@ -240,6 +269,13 @@ config.at.device = '/dev/ttyUSB2;reboot';
 result = invoke('set_config', { config });
 check(!result.success && result.error == 'invalid_config',
 	'shell-like device paths are rejected');
+
+reset();
+config = default_config();
+config.global.custom_isd_r_aid = 'A000000559';
+result = invoke('set_config', { config });
+check(!result.success && result.error == 'invalid_config',
+	'short custom ISD-R AIDs are rejected');
 
 reset();
 config = default_config();

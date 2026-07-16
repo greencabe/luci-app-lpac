@@ -2,7 +2,7 @@
 
 'use strict';
 
-import { open } from 'fs';
+import { chmod, lstat, open } from 'fs';
 import {
 	connect,
 	STATUS_NOT_FOUND,
@@ -115,8 +115,7 @@ function valid_profile_id(value) {
 }
 
 function valid_aid(value) {
-	return type(value) == 'string' && length(value) >= 2 &&
-		length(value) <= 32 && length(value) % 2 == 0 &&
+	return type(value) == 'string' && length(value) == 32 &&
 		match(value, /^[0-9A-Fa-f]+$/) !== null;
 }
 
@@ -425,8 +424,45 @@ function release_lock(handle) {
 	}
 }
 
+function valid_lock_file(stat, require_mode) {
+	return type(stat) == 'object' && stat.type == 'file' && stat.uid == 0 &&
+		stat.nlink == 1 && (!require_mode || stat.mode == 0o600);
+}
+
+function open_lock_file() {
+	let stat;
+	let handle;
+
+	try {
+		stat = lstat(LOCK_PATH);
+
+		/* Never follow or reuse a non-regular or non-root-owned lock path. */
+		if (stat !== null && !valid_lock_file(stat, false))
+			return null;
+
+		handle = open(LOCK_PATH, 'ae', 0o600);
+
+		if (!handle)
+			return null;
+
+		stat = lstat(LOCK_PATH);
+
+		if (!valid_lock_file(stat, false) || chmod(LOCK_PATH, 0o600) !== true ||
+		    !valid_lock_file(lstat(LOCK_PATH), true)) {
+			release_lock(handle);
+			return null;
+		}
+
+		return handle;
+	}
+	catch (e) {
+		release_lock(handle);
+		return null;
+	}
+}
+
 function acquire_lock() {
-	const handle = open(LOCK_PATH, 'ae', 0o600);
+	const handle = open_lock_file();
 
 	if (!handle)
 		return {
@@ -455,6 +491,13 @@ function run_lpac(request, params, kind, needs_lock) {
 	let exec_params = params;
 
 	if (needs_lock) {
+		const handle = open_lock_file();
+
+		if (!handle)
+			return failure('lock_failed',
+				'Unable to prepare the lpac operation lock.');
+
+		release_lock(handle);
 		command = FLOCK_PATH;
 		exec_params = [ '-n', LOCK_PATH, LPAC_PATH ];
 

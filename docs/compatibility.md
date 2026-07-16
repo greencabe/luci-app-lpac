@@ -9,8 +9,10 @@ older lpac release and is not a stock-supported target.
 
 ## APDU backends
 
-The UI offers only drivers reported by `lpac driver list`, while retaining the
-currently configured supported backend if discovery fails.
+When `lpac driver list` succeeds, the UI offers reported drivers and retains a
+currently configured supported value. If discovery fails because the active
+backend is unavailable, the fixed supported enum is offered for recovery and
+clearly marked as unverified.
 
 - AT and MBIM accept safe absolute paths below `/dev`, including paths such as
   `/dev/ttyS0` and `/dev/serial/by-id/...`.

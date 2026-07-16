@@ -68,6 +68,9 @@ return view.extend({
 			E('p', { 'class': 'alert-message warning' }, [
 				_('Changing the active profile can interrupt mobile connectivity. Some modems require a separate SIM power cycle or reconnect afterwards.')
 			]),
+			E('p', { 'class': 'alert-message warning' }, [
+				_('lpac may create a provider notification after this change. Secure network notification processing is not available in this version, so the notification may remain pending on the eUICC.')
+			]),
 			E('div', { 'class': 'right' }, [
 				E('button', {
 					'class': 'btn',
