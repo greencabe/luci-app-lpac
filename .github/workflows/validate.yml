@@ -58,7 +58,8 @@ jobs:
             cd build/luci
             ./node_modules/.bin/eslint \
               applications/luci-app-lpac/htdocs/luci-static/resources/lpac.js \
-              applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/*.js
+              applications/luci-app-lpac/htdocs/luci-static/resources/view/lpac/*.js \
+              applications/luci-app-lpac/tests/frontend.js
             ./build/i18n-scan.pl applications/luci-app-lpac \
               > "${GITHUB_WORKSPACE}/build/lpac.pot"
           )

@@ -32,6 +32,13 @@ function profileStateIndicator(state) {
 	return E('span', { 'class': className }, [ profileStateLabel(state) ]);
 }
 
+function profileField(label, value) {
+	return E('span', { 'class': 'lpac-profile-field' }, [
+		E('strong', { 'class': 'lpac-profile-key' }, [ label, ':' ]),
+		E('span', { 'class': 'lpac-profile-value' }, [ value ])
+	]);
+}
+
 return view.extend({
 	load: function() {
 		return L.resolveDefault(lpac.listProfiles(), null);
@@ -104,10 +111,16 @@ return view.extend({
 			E('p', { 'class': 'cbi-value-description' }, [
 				_('Requests a logical UICC refresh after the profile change; it does not reboot the modem. Some eUICCs require this flag, while others reject it.')
 			]),
-			E('p', { 'class': 'alert-message warning' }, [
+			E('p', {
+				'class': 'cbi-value-description',
+				'role': 'note'
+			}, [
 				_('Changing the active profile can interrupt mobile connectivity. Some modems require a separate SIM power cycle or reconnect afterwards.')
 			]),
-			E('p', { 'class': 'alert-message warning' }, [
+			E('p', {
+				'class': 'cbi-value-description',
+				'role': 'note'
+			}, [
 				_('lpac may create a provider notification after this change. Secure network notification processing is not available in this version, so the notification may remain pending on the eUICC.')
 			]),
 			E('div', { 'class': 'right' }, [
@@ -202,24 +215,30 @@ return view.extend({
 
 	render: function(result) {
 		const profiles = lpac.dataOr(result, []);
-		const table = E('table', { 'class': 'table' }, [
+		const table = E('table', {
+			'id': 'lpac-profile-table',
+			'class': 'table lpac-profile-table'
+		}, [
 			E('tr', { 'class': 'tr table-titles' }, [
 				E('th', { 'class': 'th left' }, [ _('Profile') ]),
 				E('th', { 'class': 'th left' }, [ _('Provider') ]),
 				E('th', { 'class': 'th left' }, [ _('ICCID') ]),
 				E('th', { 'class': 'th left' }, [ _('State') ]),
-				E('th', { 'class': 'th right' }, [ _('Actions') ])
+				E('th', { 'class': 'th right cbi-section-actions' }, [ _('Actions') ])
 			])
 		]);
 		const rows = [];
 
 		if (result && result.success) {
 			profiles.forEach(function(profile) {
+				const name = profileLabel(profile);
+				const provider = profile.serviceProviderName || '-';
+				const iccid = profile.iccid || '-';
 				const state = String(profile.profileState || '').toLowerCase();
 				const enabled = state === 'enabled';
 				const disabled = state === 'disabled';
 				const id = profile.iccid || profile.isdpAid;
-				const actions = E('div', { 'class': 'nowrap' }, [
+				const actions = E('div', { 'class': 'lpac-profile-actions' }, [
 					E('button', {
 						'class': 'btn cbi-button-action',
 						'disabled': isReadonlyView || !id ||
@@ -228,7 +247,6 @@ return view.extend({
 							? _('The profile state does not allow this action') : '',
 						'click': ui.createHandlerFn(this, 'showStateModal', profile, !enabled)
 					}, [ enabled ? _('Disable') : disabled ? _('Enable') : _('Unavailable') ]),
-					' ',
 					E('button', {
 						'class': 'btn cbi-button-edit',
 						'disabled': isReadonlyView || !profile.iccid || null,
@@ -236,7 +254,6 @@ return view.extend({
 							? _('An ICCID is required to rename this profile') : '',
 						'click': ui.createHandlerFn(this, 'showNicknameModal', profile)
 					}, [ _('Rename') ]),
-					' ',
 					E('button', {
 						'class': 'btn cbi-button-negative',
 						'disabled': isReadonlyView || !disabled || !id || null,
@@ -247,10 +264,10 @@ return view.extend({
 				]);
 
 				rows.push([
-					profileLabel(profile),
-					profile.serviceProviderName || '-',
-					profile.iccid || '-',
-					profileStateIndicator(state),
+					[ name, profileField(_('Profile'), name) ],
+					[ provider, profileField(_('Provider'), provider) ],
+					[ iccid, profileField(_('ICCID'), iccid) ],
+					[ state, profileField(_('State'), profileStateIndicator(state)) ],
 					actions
 				]);
 			}, this);
@@ -263,6 +280,10 @@ return view.extend({
 		]));
 
 		return E([
+			E('link', {
+				'rel': 'stylesheet',
+				'href': L.resource('view/lpac/profiles.css')
+			}),
 			E('h2', {}, [ _('eSIM profiles') ]),
 			E('div', { 'class': 'cbi-map-descr' }, [
 				_('Profiles are read directly from the eUICC using the configured lpac APDU backend.')

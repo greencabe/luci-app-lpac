@@ -86,7 +86,8 @@ global._ = function(value) { return value; };
 global.E = element;
 global.L = {
 	hasViewPermission: function() { return true; },
-	resolveDefault: function(value) { return value; }
+	resolveDefault: function(value) { return value; },
+	resource: function(value) { return `/luci-static/resources/${value}`; }
 };
 global.cbi_update_table = function(table, rows, empty) {
 	table.rows = rows;
@@ -137,6 +138,23 @@ const profile = {
 };
 const profilesView = loadView('profiles.js');
 const profilesPage = profilesView.render({ success: true, data: [ profile ] });
+const profileTable = findAll(profilesPage, function(node) {
+	return node.attrs?.id === 'lpac-profile-table';
+})[0];
+assert.ok(profileTable, 'the profile table should have a scoped layout identifier');
+assert.ok(profileTable.attrs.class.split(/\s+/).includes('lpac-profile-table'),
+	'the profile table should expose its scoped stylesheet class');
+assert.strictEqual(findAll(profilesPage, function(node) {
+	return node.tag === 'link' && node.attrs?.rel === 'stylesheet' &&
+		node.attrs?.href === '/luci-static/resources/view/lpac/profiles.css';
+}).length, 1, 'the profile view should load its scoped responsive stylesheet');
+assert.deepStrictEqual(findAll(profilesPage, function(node) {
+	return node.attrs?.class === 'lpac-profile-key';
+}).map(textContent), [ 'Profile:', 'Provider:', 'ICCID:', 'State:' ],
+	'mobile profile fields should provide inline labels with colons');
+const profileActionsHeader = byText(profilesPage, 'th', 'Actions')[0];
+assert.ok(profileActionsHeader.attrs.class.split(/\s+/).includes('cbi-section-actions'),
+	'the Actions heading should make its generated mobile cell full-width');
 
 [ 'Enable', 'Rename', 'Delete' ].forEach(function(label) {
 	const buttons = byText(profilesPage, 'button', label);
@@ -144,6 +162,19 @@ const profilesPage = profilesView.render({ success: true, data: [ profile ] });
 	assert.ok(buttons[0].attrs.disabled == null,
 		`${label} button must omit the disabled attribute when writable`);
 });
+const profileActionGroups = findAll(profilesPage, function(node) {
+	return node.tag === 'div' && node.attrs?.class === 'lpac-profile-actions' &&
+		[ 'Enable', 'Rename', 'Delete' ].every(function(label) {
+		return byText(node, 'button', label).length === 1;
+	});
+});
+assert.strictEqual(profileActionGroups.length, 1,
+	'profile actions should share one standard action wrapper');
+assert.strictEqual(profileActionGroups[0].children.length, 3,
+	'the action wrapper should contain only three buttons without spacers');
+assert.ok(profileActionGroups[0].children.every(function(node) {
+	return node.tag === 'button';
+}), 'the clean action row should contain only button elements');
 assert.strictEqual(findAll(profilesPage, function(node) {
 	return node.tag === 'span' && node.attrs?.class === 'label' &&
 		textContent(node) === 'Disabled';
@@ -201,6 +232,20 @@ assert.strictEqual(findAll(modal.content, function(node) {
 	return node.attrs?.class === 'cbi-value-description' &&
 		textContent(node).startsWith('Requests a logical UICC refresh');
 }).length, 1, 'refresh help should distinguish the eUICC request from a modem reboot');
+
+[ 'Changing the active profile', 'lpac may create a provider notification' ].forEach(function(text) {
+	const notes = findAll(modal.content, function(node) {
+		return node.attrs?.class === 'cbi-value-description' &&
+			textContent(node).startsWith(text);
+	});
+	assert.strictEqual(notes.length, 1,
+		`${text} guidance should use the standard help-note presentation`);
+	assert.strictEqual(notes[0].attrs.role, 'note',
+		`${text} guidance should retain explicit note semantics`);
+});
+assert.strictEqual(findAll(modal.content, function(node) {
+	return node.attrs?.class === 'alert-message warning';
+}).length, 0, 'profile state guidance should not use oversized warning boxes');
 
 const identifier = findAll(modal.content, function(node) {
 	return node.attrs?.id === 'lpac-profile-identifier';
@@ -286,4 +331,50 @@ assert.strictEqual(findAll(settingsPage, function(node) {
 		textContent(node).startsWith('The AT backend is timing-sensitive');
 }).length, 1, 'AT compatibility guidance should render as field help');
 
-console.log('ok - frontend controls, state badges, and warning hierarchy');
+const menu = JSON.parse(fs.readFileSync(path.join(appRoot,
+	'root/usr/share/luci/menu.d/luci-app-lpac.json'), 'utf8'));
+assert.strictEqual(menu['admin/modem'].title, 'Modem',
+	'the application should provide the shared Modem menu root');
+assert.deepStrictEqual(menu['admin/modem'].depends, {},
+	'the shared Modem root must not inherit an application-specific ACL');
+assert.strictEqual(menu['admin/modem/lpac'].title, 'eSIM Manager',
+	'eSIM Manager should live below the Modem menu');
+[ 'overview', 'profiles', 'notifications', 'settings' ].forEach(function(page) {
+	assert.ok(menu[`admin/modem/lpac/${page}`],
+		`${page} should remain a child tab below eSIM Manager`);
+});
+assert.strictEqual(menu['admin/network/lpac'].action.type, 'alias',
+	'the former Network path should remain as a hidden compatibility alias');
+assert.strictEqual(menu['admin/network/lpac'].action.path, 'admin/modem/lpac',
+	'the compatibility alias should target the new Modem path');
+assert.strictEqual(menu['admin/network/lpac'].wildcard, true,
+	'the compatibility alias should preserve old child-tab URLs');
+assert.strictEqual(menu['admin/network/lpac'].title, undefined,
+	'the compatibility alias must not remain visible in Network');
+
+const profileCss = fs.readFileSync(path.join(appRoot,
+	'htdocs/luci-static/resources/view/lpac/profiles.css'), 'utf8');
+assert.ok(profileCss.includes('#lpac-profile-table,\n\t#lpac-profile-table > tbody {\n\t\tdisplay: block;'),
+	'the responsive layout should not depend on a theme table display mode');
+assert.ok(profileCss.includes('#lpac-profile-table .tr.table-titles {\n\t\tdisplay: none;'),
+	'the custom responsive grid should hide its redundant table heading');
+assert.match(profileCss, /#lpac-profile-table \.tr[^{]+{\s*display: grid;/,
+	'the mobile profile rows should use a scoped grid layout');
+assert.match(profileCss, /grid-template-columns:\s*minmax\(0, 2fr\) minmax\(7rem, 1fr\)/,
+	'the mobile grid should reserve more space for profile names and ICCIDs');
+assert.match(profileCss, /#lpac-profile-table \.td\[data-title\][^{]*::before/,
+	'the stylesheet should replace only the profile table theme labels');
+assert.match(profileCss, /#lpac-profile-table \.td\[data-title\][^{]*::after/,
+	'the stylesheet should remove scoped theme decoration from profile cells');
+assert.ok(profileCss.includes('\t\tborder-top: 0;'),
+	'the responsive grid should suppress theme borders on individual cells');
+assert.ok(profileCss.includes('#lpac-profile-table .tr.placeholder > .td {'),
+	'the block table should retain a normalized empty-profile placeholder');
+assert.match(profileCss, /\.lpac-profile-field[^{]*{[^}]*font-size:\s*1em;/s,
+	'profile details should retain the normal table font size on mobile');
+assert.match(profileCss, /\.lpac-profile-actions > \.btn[^{]*{[^}]*font-size:\s*13px !important;[^}]*line-height:\s*1\.8em;/s,
+	'action buttons should use compact typography without changing their columns');
+assert.doesNotMatch(profileCss, /^\s*\.table\s+\.td/m,
+	'the responsive override must not alter unrelated LuCI tables');
+
+console.log('ok - frontend controls, responsive layout, menu, and safety states');
