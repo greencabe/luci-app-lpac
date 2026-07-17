@@ -65,7 +65,7 @@ jobs:
           sed -i \
             's/^LUCI_DEPENDS:=+luci-base +lpac$/LUCI_DEPENDS:=+luci-base/' \
             build-feed/applications/luci-app-lpac/Makefile
-          grep -Fx 'LUCI_EXTRA_DEPENDS:=lpac (>=2.3.0-r2)' \
+          grep -Fx 'LUCI_EXTRA_DEPENDS:=lpac (>=2.3.0.438-r2)' \
             build-feed/applications/luci-app-lpac/Makefile
 
           source_epoch="$(git log -1 --format=%ct -- applications/luci-app-lpac)"

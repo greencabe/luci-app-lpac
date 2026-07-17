@@ -1,0 +1,27 @@
+menu "Configuration"
+
+config LPAC_WITH_PCSC
+	bool "Include APDU PCSC backend support"
+	default n
+	help
+	  Compile lpac with APDU PCSC backend support.
+
+config LPAC_WITH_AT
+	bool "Include APDU AT backend support"
+	default y
+	help
+	  Compile lpac with APDU AT backend support.
+
+config LPAC_WITH_UQMI
+	bool "Include APDU uqmi backend support"
+	default y
+	help
+	  Compile lpac with the OpenWrt uqmi backend.
+
+config LPAC_WITH_MBIM
+	bool "Include APDU MBIM backend support"
+	default y
+	help
+	  Compile lpac with APDU MBIM backend support.
+
+endmenu

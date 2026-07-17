@@ -46,14 +46,17 @@ Upstream corrected version handling after 2.3.0 in
 
 ## Compatibility
 
-The package targets LuCI `master` and requires `lpac >= 2.3.0-r2`. OpenWrt
+This release branch requires the bundled `lpac >= 2.3.0.438-r2`. OpenWrt
 25.12 requires a compatible backport or custom package, while the stock 24.10
 lpac is too old. The application itself is architecture-independent.
 
 When driver discovery succeeds, Settings offers the reported AT, uqmi, MBIM,
 or PC/SC backends. Safe AT and MBIM device paths below `/dev` are accepted.
-The active OpenWrt uqmi backend remains restricted to `/dev/cdc-wdmN` because
-that downstream integration currently constructs a shell command.
+The release branch also manages the upstream MBIM slot-mapping bypass. It is
+enabled by default for compatibility and can be disabled for multi-slot
+devices that require normal slot selection.
+The active uqmi backend remains restricted to `/dev/cdc-wdmN`; the bundled
+package fixes client setup so the configured control-device path is honored.
 
 ## Architecture
 
@@ -103,7 +106,9 @@ Direct RPC calls bypass that browser state check; the backend relies on the
 eUICC to reject deletion of an enabled profile and normalizes the resulting
 lpac error.
 
-Settings writes update only the official options managed by this application.
+Settings writes update only the official options managed by this application,
+including the merged upstream MBIM skip-slot-mapping option on this release
+branch.
 Additional package- or vendor-specific UCI options in the named sections are
 left intact.
 

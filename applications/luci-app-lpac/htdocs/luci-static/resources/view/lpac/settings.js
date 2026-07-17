@@ -114,7 +114,8 @@ return view.extend({
 			},
 			mbim: {
 				device: mbimDevice,
-				proxy: document.getElementById('lpac-mbim-proxy').checked ? '1' : '0'
+				proxy: document.getElementById('lpac-mbim-proxy').checked ? '1' : '0',
+				skip_slot_mapping: document.getElementById('lpac-mbim-skip-slot-mapping').checked ? '1' : '0'
 			}
 		};
 
@@ -200,13 +201,16 @@ return view.extend({
 				E('h3', {}, [ _('uqmi backend') ]),
 				formRow(_('Control device'),
 					textInput('lpac-uqmi-device', uqmi.device || '/dev/cdc-wdm0', '/dev/cdc-wdm0'),
-					_('Use the /dev/cdc-wdmN device associated with the eUICC. Alternate control devices may not work with the current OpenWrt uqmi backend.')),
+					_('Use the /dev/cdc-wdmN control device associated with the eUICC.')),
 				formRow(_('uqmi debug'), checkbox('lpac-uqmi-debug', uqmi.debug === '1'))
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, [ _('MBIM backend') ]),
 				formRow(_('Control device'), textInput('lpac-mbim-device', mbim.device || '/dev/cdc-wdm0', '/dev/cdc-wdm0')),
-				formRow(_('Use mbim-proxy'), checkbox('lpac-mbim-proxy', mbim.proxy !== '0'))
+				formRow(_('Use mbim-proxy'), checkbox('lpac-mbim-proxy', mbim.proxy !== '0')),
+				formRow(_('Skip MBIM slot mapping'),
+					checkbox('lpac-mbim-skip-slot-mapping', mbim.skip_slot_mapping === '1'),
+					_('Use the modem\'s currently selected slot instead of querying or changing MBIM Device Slot Mapping. Enabled by default for compatibility; disable it on multi-slot devices that require normal slot selection.'))
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, [ _('AT backend') ]),

@@ -1,0 +1,317 @@
+name: Bundled OpenWrt packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Target package architecture
+        type: choice
+        default: all
+        options:
+          - all
+          - aarch64_generic
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - arm_cortex-a7_neon-vfpv4
+          - mipsel_24kc
+          - x86_64
+      package_format:
+        description: OpenWrt package format
+        type: choice
+        default: all
+        options:
+          - all
+          - ipk
+          - apk
+  push:
+    branches:
+      - release/bundled-lpac-2.3.0
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  prepare:
+    name: Prepare build matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - name: Build selected matrix
+        id: matrix
+        shell: bash
+        env:
+          SELECTED_ARCH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && 'x86_64' || inputs.arch || 'all' }}
+          SELECTED_FORMAT: ${{ inputs.package_format || 'all' }}
+        run: |
+          set -euo pipefail
+
+          arches='aarch64_generic aarch64_cortex-a53 aarch64_cortex-a72 arm_cortex-a7_neon-vfpv4 mipsel_24kc x86_64'
+          formats='ipk apk'
+          json='{"include":['
+          separator=''
+
+          for arch in ${arches}; do
+            [ "${SELECTED_ARCH}" = 'all' ] || [ "${SELECTED_ARCH}" = "${arch}" ] || continue
+
+            for package_format in ${formats}; do
+              [ "${SELECTED_FORMAT}" = 'all' ] || [ "${SELECTED_FORMAT}" = "${package_format}" ] || continue
+
+              case "${package_format}" in
+                ipk)
+                  openwrt_version='24.10.7'
+                  openwrt_major='openwrt24'
+                  luci_branch='openwrt-24.10'
+                  ;;
+                apk)
+                  openwrt_version='25.12.5'
+                  openwrt_major='openwrt25'
+                  luci_branch='openwrt-25.12'
+                  ;;
+              esac
+
+              json="${json}${separator}{\"arch\":\"${arch}\",\"package_format\":\"${package_format}\",\"openwrt_version\":\"${openwrt_version}\",\"openwrt_major\":\"${openwrt_major}\",\"luci_branch\":\"${luci_branch}\",\"sdk_arch\":\"${arch}-${openwrt_version}\"}"
+              separator=','
+            done
+          done
+
+          json="${json}]}"
+          [ "${separator}" = ',' ]
+          echo "matrix=${json}" >> "${GITHUB_OUTPUT}"
+          echo "${json}"
+
+  build:
+    name: ${{ matrix.openwrt_version }} / ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Prepare matching LuCI feed
+        shell: bash
+        env:
+          LUCI_BRANCH: ${{ matrix.luci_branch }}
+        run: |
+          set -euxo pipefail
+
+          rm -rf build-feed artifacts dist
+          mkdir -p artifacts dist
+
+          git clone --filter=blob:none --depth 1 \
+            --branch "${LUCI_BRANCH}" \
+            https://github.com/openwrt/luci.git \
+            build-feed
+
+          rm -rf build-feed/applications/luci-app-lpac
+          cp -a applications/luci-app-lpac build-feed/applications/
+
+          rm -rf build-feed/contrib/lpac
+          mkdir -p build-feed/contrib
+          cp -a packages/lpac build-feed/contrib/
+
+          grep -Fx 'LUCI_DEPENDS:=+luci-base +lpac' \
+            build-feed/applications/luci-app-lpac/Makefile
+          grep -Fx 'LUCI_EXTRA_DEPENDS:=lpac (>=2.3.0.438-r2)' \
+            build-feed/applications/luci-app-lpac/Makefile
+          # The package variable is intentionally matched literally.
+          # shellcheck disable=SC2016
+          grep -Fx 'PKG_VERSION:=$(LPAC_UPSTREAM_VERSION).438' \
+            build-feed/contrib/lpac/Makefile
+          grep -Fx 'PKG_RELEASE:=2' build-feed/contrib/lpac/Makefile
+
+          source_epoch="$(git log -1 --format=%ct)"
+          source_sha="$(git rev-parse --short=12 HEAD)"
+          source_date="$(date -u -d "@${source_epoch}" +%Y-%m-%dT%H:%M:%SZ)"
+
+          git -C build-feed add applications/luci-app-lpac contrib/lpac
+          GIT_AUTHOR_DATE="${source_date}" \
+          GIT_COMMITTER_DATE="${source_date}" \
+            git -C build-feed \
+              -c user.name='GitHub Actions' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit --no-gpg-sign \
+              -m "ci: stage bundled luci-app-lpac ${source_sha}"
+
+      - name: Build lpac and luci-app-lpac
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: ${{ matrix.sdk_arch }}
+          ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+          BUILD_LOG: 1
+          FEED_DIR: ${{ github.workspace }}/build-feed
+          FEEDNAME: lpac_bundle
+          PACKAGES: lpac luci-app-lpac
+          V: s
+
+      - name: Verify packages and create ZIP bundle
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          OPENWRT_MAJOR: ${{ matrix.openwrt_major }}
+          OPENWRT_VERSION: ${{ matrix.openwrt_version }}
+          PACKAGE_FORMAT: ${{ matrix.package_format }}
+        run: |
+          set -euxo pipefail
+
+          case "${PACKAGE_FORMAT}" in
+            ipk)
+              lpac_glob="lpac_2.3.0.438-r2_${ARCH}.ipk"
+              luci_glob='luci-app-lpac_*.ipk'
+              ;;
+            apk)
+              lpac_glob='lpac-2.3.0.438-r2.apk'
+              luci_glob='luci-app-lpac-*.apk'
+              ;;
+          esac
+
+          mapfile -d '' lpac_packages < <(
+            find artifacts/bin -type f -name "${lpac_glob}" -print0
+          )
+          mapfile -d '' luci_packages < <(
+            find artifacts/bin -type f -name "${luci_glob}" -print0
+          )
+
+          if [ "${#lpac_packages[@]}" -ne 1 ] || [ "${#luci_packages[@]}" -ne 1 ]; then
+            echo "Expected one lpac and one luci-app-lpac package" >&2
+            find artifacts/bin -type f -print >&2
+            exit 1
+          fi
+
+          case "$(basename "${luci_packages[0]}")" in
+            luci-app-lpac-0.apk|luci-app-lpac_0_*.ipk)
+              echo 'Refusing a LuCI package with version 0' >&2
+              exit 1
+              ;;
+          esac
+
+          bundle_dir="dist/bundle"
+          mkdir -p "${bundle_dir}"
+          cp -v "${lpac_packages[0]}" "${luci_packages[0]}" "${bundle_dir}/"
+
+          lpac_name="$(basename "${lpac_packages[0]}")"
+          luci_name="$(basename "${luci_packages[0]}")"
+          case "${PACKAGE_FORMAT}" in
+            ipk)
+              update_command='opkg update'
+              install_command="opkg install ./${lpac_name} ./${luci_name}"
+              ;;
+            apk)
+              update_command='apk update'
+              install_command="apk add --allow-untrusted ./${lpac_name} ./${luci_name}"
+              ;;
+          esac
+
+          cat > "${bundle_dir}/INSTALL.txt" <<EOF
+          luci-app-lpac bundled compatibility build
+
+          OpenWrt: ${OPENWRT_VERSION}
+          Package architecture: ${ARCH}
+          Package format: ${PACKAGE_FORMAT}
+
+          Included packages:
+          - ${lpac_name}
+          - ${luci_name}
+
+          Install both local packages while the matching official OpenWrt feeds
+          are reachable so runtime dependencies can be resolved:
+
+              ${update_command}
+              ${install_command}
+
+          This lpac build enables MBIM skip-slot-mapping by default. Disable it
+          on multi-slot devices or devices that require normal slot mapping:
+
+              uci set lpac.mbim.skip_slot_mapping='0'
+              uci commit lpac
+
+          When skip-slot-mapping is enabled, the configured MBIM UIM slot is
+          ignored and a multi-slot modem may expose a different eUICC.
+          The default APDU backend for new installations is MBIM.
+          The same option is available in Modem > eSIM Manager > Settings.
+
+          lpac 2.3.0 does not verify TLS peers. Do not use its network-facing
+          CLI operations with credentials or activation codes.
+          EOF
+
+          (
+            cd "${bundle_dir}"
+            sha256sum "${lpac_name}" "${luci_name}" > SHA256SUMS
+            cat SHA256SUMS
+          )
+
+          zip_name="luci-app-lpac-${ARCH}-${OPENWRT_MAJOR}.${PACKAGE_FORMAT}.zip"
+          (
+            cd "${bundle_dir}"
+            zip -9 "${GITHUB_WORKSPACE}/dist/${zip_name}" \
+              "${lpac_name}" "${luci_name}" SHA256SUMS INSTALL.txt
+          )
+          unzip -l "dist/${zip_name}"
+
+      - name: Upload ZIP bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: luci-app-lpac-${{ matrix.arch }}-${{ matrix.openwrt_major }}.${{ matrix.package_format }}
+          path: dist/luci-app-lpac-${{ matrix.arch }}-${{ matrix.openwrt_major }}.${{ matrix.package_format }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download all ZIP bundles
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mapfile -d '' bundles < <(
+            find release-assets -maxdepth 1 -type f \
+              -name 'luci-app-lpac-*-openwrt*.zip' -print0
+          )
+          [ "${#bundles[@]}" -eq 12 ]
+
+          (
+            cd release-assets
+            sha256sum luci-app-lpac-*-openwrt*.zip > SHA256SUMS
+            cat SHA256SUMS
+          )
+
+      - name: Publish release
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090 # v2.4.1
+        with:
+          name: luci-app-lpac ${{ github.ref_name }} bundled packages
+          body_path: BUNDLED_RELEASE.md
+          files: |
+            release-assets/luci-app-lpac-*-openwrt*.zip
+            release-assets/SHA256SUMS
+          fail_on_unmatched_files: true
+          prerelease: false

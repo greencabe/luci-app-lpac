@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=lpac
+LPAC_UPSTREAM_VERSION:=2.3.0
+PKG_VERSION:=$(LPAC_UPSTREAM_VERSION).438
+PKG_RELEASE:=2
+
+PKG_SOURCE:=$(PKG_NAME)-$(LPAC_UPSTREAM_VERSION).tar.gz
+PKG_SOURCE_URL:=https://codeload.github.com/estkme-group/lpac/tar.gz/refs/tags/v$(LPAC_UPSTREAM_VERSION)?
+PKG_HASH:=661dffbd1e9e5732dab4a0bb0a9837d4906c8c66bd748bda262fe3e8d3e420f6
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(LPAC_UPSTREAM_VERSION)
+
+PKG_MAINTAINER:=As Tsaqib <0xfiqks@gmail.com>
+PKG_LICENSE:=AGPL-3.0-only LGPL-2.0-only
+
+CMAKE_INSTALL:=1
+
+include $(INCLUDE_DIR)/package.mk
+include $(INCLUDE_DIR)/cmake.mk
+
+define Package/lpac
+  SECTION:=utils
+  CATEGORY:=Utilities
+  TITLE:=eUICC eSIM LPA written in C (compatibility build)
+  DEPENDS:= \
+    +libcurl \
+    +LPAC_WITH_PCSC:libpcsclite \
+    +LPAC_WITH_PCSC:pcscd \
+    +LPAC_WITH_MBIM:libmbim \
+    +LPAC_WITH_UQMI:uqmi
+  URL:=https://github.com/estkme-group/lpac
+endef
+
+define Package/lpac/description
+  lpac is an eUICC eSIM LPA manager written in C. This downstream
+  compatibility build uses lpac v2.3.0 with the upstream environment and
+  version fixes plus the MBIM UICC compatibility changes tracked in lpac
+  pull request 438.
+endef
+
+define Package/lpac/config
+  source "$(SOURCE)/Config.in"
+endef
+
+define Package/lpac/conffiles
+/etc/config/lpac
+endef
+
+TARGET_CFLAGS += $(FPIC)
+
+# libqmi 1.35.4 or newer is required for QMI over QRTR.
+CMAKE_OPTIONS += \
+  -DLPAC_WITH_APDU_PCSC=$(if $(CONFIG_LPAC_WITH_PCSC),ON,OFF) \
+  -DLPAC_WITH_APDU_AT=$(if $(CONFIG_LPAC_WITH_AT),ON,OFF) \
+  -DLPAC_WITH_APDU_UQMI=$(if $(CONFIG_LPAC_WITH_UQMI),ON,OFF) \
+  -DLPAC_WITH_APDU_MBIM=$(if $(CONFIG_LPAC_WITH_MBIM),ON,OFF) \
+  -DLPAC_WITH_APDU_QMI_QRTR=OFF
+
+define Package/lpac/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) ./files/lpac.sh $(1)/usr/bin/lpac
+
+	$(INSTALL_DIR) $(1)/etc/config
+	$(CP) ./files/lpac.uci $(1)/etc/config/lpac
+
+	$(INSTALL_DIR) $(1)/usr/lib
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/lpac $(1)/usr/lib/lpac
+endef
+
+$(eval $(call BuildPackage,lpac))

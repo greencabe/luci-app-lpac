@@ -4,14 +4,15 @@
 [![Build](https://github.com/As-tsaqib/luci-app-lpac/actions/workflows/build.yml/badge.svg)](https://github.com/As-tsaqib/luci-app-lpac/actions/workflows/build.yml)
 
 Native LuCI frontend for OpenWrt's `lpac` eSIM manager. The application uses
-the packaged `/usr/bin/lpac` entrypoint and `/etc/config/lpac`; it does not
-bundle lpac, modem firmware, hardware patches, or network orchestration.
+the packaged `/usr/bin/lpac` entrypoint and `/etc/config/lpac`.
 
-The source is kept in the exact layout intended for a future OpenWrt LuCI
-contribution:
+The `main` branch keeps the exact application layout intended for the OpenWrt
+LuCI contribution. This release branch additionally carries an auditable
+OpenWrt package definition for an unofficial patched lpac v2.3.0 build:
 
 ```text
 applications/luci-app-lpac/
+packages/lpac/
 ```
 
 See the [application README](applications/luci-app-lpac/README.md) for the RPC
@@ -32,39 +33,53 @@ the web interface.
 
 ## Compatibility
 
-| OpenWrt | Package format | lpac requirement | Status |
+| OpenWrt | Format | Bundled lpac | Status |
 | --- | --- | --- | --- |
-| Snapshot/master | APK | Official `lpac >= 2.3.0-r2` | CI target |
-| 25.12.x | APK | Backported or custom `lpac >= 2.3.0-r2` | Tested on 25.12.5 |
-| 24.10.x | IPK | Stock lpac is too old | Not supported by stock feeds |
+| 25.12.5 | APK | `2.3.0.438-r2` | Release target |
+| 24.10.7 | IPK | `2.3.0.438-r2` | Release target |
 
-The application is architecture-independent. The OpenWrt release and package
-format must still match the router. A patched L850-GL lpac backend was used for
-one real-device validation, but no hardware-specific code is included here.
+Release ZIPs are provided for `aarch64_generic`, `aarch64_cortex-a53`,
+`aarch64_cortex-a72`, `arm_cortex-a7_neon-vfpv4`, `mipsel_24kc`, and
+`x86_64`. The LuCI package itself is architecture-independent, while the lpac
+binary must match the router package architecture. The Linksys EA6350 v3 uses
+`arm_cortex-a7_neon-vfpv4`.
 
-## Review artifacts
+## Bundled release artifacts
 
-GitHub Actions builds the LuCI application only. It does not compile or upload
-lpac. Download the artifact matching the router release, then install the
-unsigned review package locally, for example:
-
-```sh
-scp luci-app-lpac-*.apk root@router:/tmp/
-ssh root@router apk add --allow-untrusted /tmp/luci-app-lpac-*.apk
-```
-
-Before installation, confirm that the package manager records a compatible
-lpac version:
+Each ZIP follows the same per-architecture distribution pattern as
+`luci-app-engsel` and contains exactly one patched lpac package, one
+`luci-app-lpac` package, `SHA256SUMS`, and `INSTALL.txt`. Select the ZIP that
+matches both the OpenWrt release and package architecture.
 
 ```sh
-apk info -a lpac
-# or on opkg-based releases
-opkg status lpac
+# OpenWrt 24.10.7
+opkg install ./lpac_*.ipk ./luci-app-lpac_*.ipk
+
+# OpenWrt 25.12.5
+apk add --allow-untrusted ./lpac-*.apk ./luci-app-lpac-*.apk
 ```
+
+The compatibility package enables MBIM skip-slot-mapping by default. Disable
+it at `Modem → eSIM Manager → Settings → MBIM backend`, or through UCI on
+hardware that requires normal slot discovery:
+
+```sh
+uci set lpac.mbim.skip_slot_mapping='0'
+uci commit lpac
+```
+
+The lpac package is built from the official v2.3.0 archive with OpenWrt's
+uqmi backend plus its configured-device correction, the merged upstream
+environment parser fix from pull request 308, the version fix from pull
+request 310, and the MBIM compatibility changes merged in pull request 438. See
+[packages/lpac/README.md](packages/lpac/README.md) for provenance and scope.
+The release-branch LuCI package requires `lpac >=2.3.0.438-r2`, ensuring that
+the Settings checkbox is paired with a wrapper that exports the upstream MBIM
+slot-mapping option and a binary that correctly parses UCI boolean values.
 
 ## Development
 
-The repository runs source validation, 38 mocked rpcd/ucode checks, frontend
+The repository runs source validation, 42 mocked rpcd/ucode checks, frontend
 DOM-attribute regression tests, and SDK builds for OpenWrt 25.12.5 and
 snapshot. See [CONTRIBUTING.md](CONTRIBUTING.md) for local commands and DCO
 requirements.
@@ -74,10 +89,13 @@ or HTTP debug payloads in public issues.
 
 ## Upstream status
 
-This repository is a review staging area, not an OpenWrt fork. A future pull
-request must be prepared as a clean commit in a fork of `openwrt/luci`, target
-`master`, pass LuCI FormalityCheck, and use an accepted DCO identity.
+The bundled package workflow is downstream release infrastructure and is not
+part of the OpenWrt LuCI contribution. Upstream changes remain isolated in a
+clean `openwrt/luci` branch, target `master`, with DCO-compliant commits.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+The LuCI application is licensed under Apache-2.0; see [LICENSE](LICENSE).
+Bundled lpac binaries retain the upstream AGPL/LGPL and component licenses
+shipped by [estkme-group/lpac](https://github.com/estkme-group/lpac). The
+OpenWrt uqmi patch retains its MIT source notice.

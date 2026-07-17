@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y cmake gettext libjson-c-dev pkg-config shellcheck
+          sudo apt-get install -y cmake gettext libcurl4-openssl-dev libjson-c-dev pkg-config shellcheck
 
       - name: Prepare LuCI validation tree
         shell: bash
@@ -82,7 +82,47 @@ jobs:
           msgfmt --check --check-format \
             -o /dev/null applications/luci-app-lpac/po/templates/lpac.pot
           shellcheck applications/luci-app-lpac/tests/run-tests.sh
+          shellcheck packages/lpac/files/lpac.sh packages/lpac/test-version.sh
           git diff --check
+
+      - name: Validate bundled lpac patch series
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p build/lpac-source
+          curl -fsSL \
+            https://codeload.github.com/estkme-group/lpac/tar.gz/refs/tags/v2.3.0 \
+            | tar -xz -C build/lpac-source --strip-components=1
+
+          for patch_file in packages/lpac/patches/*.patch; do
+            patch -d build/lpac-source -p1 --forward < "${patch_file}"
+          done
+
+          cc -std=gnu11 -ffunction-sections -fdata-sections \
+            -I build/lpac-source \
+            packages/lpac/test-env-bool.c \
+            build/lpac-source/utils/lpac/utils.c \
+            -Wl,--gc-sections \
+            -o build/lpac-env-bool-test
+          build/lpac-env-bool-test
+
+          cmake -S build/lpac-source -B build/lpac-host \
+            -DLPAC_WITH_APDU_PCSC=OFF \
+            -DLPAC_WITH_APDU_AT=ON \
+            -DLPAC_WITH_APDU_MBIM=OFF \
+            -DLPAC_WITH_APDU_QMI_QRTR=OFF
+          cmake --build build/lpac-host --parallel
+
+          version_output="$(build/lpac-host/output/lpac version)"
+          printf '%s\n' "${version_output}" | grep -F '"code":0'
+          printf '%s\n' "${version_output}" | grep -F '"data":"2.3.0"'
+          if printf '%s\n' "${version_output}" | grep -F 'unknown'; then
+            exit 1
+          fi
+
+          driver_output="$(build/lpac-host/output/lpac driver list)"
+          printf '%s\n' "${driver_output}" | grep -F '"uqmi"'
 
       - name: Build host ucode
         shell: bash

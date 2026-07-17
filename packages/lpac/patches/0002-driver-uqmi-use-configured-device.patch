@@ -1,0 +1,33 @@
+From: As Tsaqib <0xfiqks@gmail.com>
+Date: Fri, 17 Jul 2026 15:10:00 +0000
+Subject: [PATCH] driver: uqmi: use the configured device for client setup
+
+uqmi_execute_command() already prefixes every operation with the executable,
+flags, and LPAC_QMI_DEV path. Pass only the get-client-id arguments so client
+setup does not construct a duplicated command or force /dev/cdc-wdm0.
+
+Signed-off-by: As Tsaqib <0xfiqks@gmail.com>
+---
+ driver/apdu/uqmi.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+--- a/driver/apdu/uqmi.c
++++ b/driver/apdu/uqmi.c
+@@ -63,7 +63,7 @@ static int uqmi_open_client()
+     char buffer[2048] = {};
+     int ret;
+ 
+-    ret = uqmi_execute_command("uqmi -s -d /dev/cdc-wdm0 --get-client-id uim", buffer, sizeof(buffer));
++    ret = uqmi_execute_command("--get-client-id uim", buffer, sizeof(buffer));
+     if (ret)
+     {
+         return -1;
+@@ -80,8 +80,6 @@ static int uqmi_open_client()
+ 
+ static int apdu_interface_connect(struct euicc_ctx *ctx)
+ {
+-    const char *device;
+-
+     client_id = 0;
+     logic_channel = 0;
+     devpath = getenv("LPAC_QMI_DEV");
