@@ -10,26 +10,33 @@ wrapper.
 
 - Show the installed lpac version, compiled drivers, and eUICC information.
 - List, enable, disable, rename, and delete profiles.
+- Download a profile with a complete LPA activation code, a locally decoded QR
+  image, or the non-interactive manual parameters supported by upstream lpac.
 - List and remove pending eUICC notifications.
 - Configure the official AT, uqmi, MBIM, and PC/SC backends through validated
   RPC methods.
 
-Network operations such as profile download, discovery, and notification
-processing are intentionally deferred until the packaged lpac verifies TLS
-peers and hostnames. Exposing those operations in a web UI before then would
-not be safe. lpac 2.3.0 explicitly disables curl peer and hostname
+The Download view mirrors `lpac profile download`: it accepts the complete LPA
+string, supports browser-local QR image decoding, and exposes the
+non-interactive upstream SM-DP+, matching-ID, IMEI, and confirmation-code
+parameters. The QR image is not uploaded to the router. The resulting network
+operation uses the HTTP backend configured for the installed lpac package.
+LuCI does not replace,
+override, or independently verify that package's TLS transport. In particular,
+the bundled lpac v2.3.0 build explicitly disables curl peer and hostname
 verification in
 [driver/http/curl.c](https://github.com/estkme-group/lpac/blob/v2.3.0/driver/http/curl.c#L90-L91).
-Separately,
-[estkme-group/lpac#444](https://github.com/estkme-group/lpac/pull/444)
-tracks hardening of untrusted server-response handling.
+This transport behavior is inherited rather than introduced by the LuCI page.
+Separately, [estkme-group/lpac#444](https://github.com/estkme-group/lpac/pull/444)
+hardens handling of untrusted server responses.
 
 Removing a pending notification only deletes its record from the eUICC. It
 does not contact the provider or undo the profile operation, and discarding an
-unprocessed record can leave the provider state out of sync. A bulk Process
-action is intentionally absent while lpac TLS verification is disabled. The
-packaged bulk implementation can also complete only part of a batch before an
-error and does not guarantee the grouping and ordering required by SGP.22.
+unprocessed record can leave the provider state out of sync. Network
+notification processing and its bulk Process action remain outside the current
+application scope. The packaged bulk implementation can complete only part of
+a batch before an error and does not guarantee the grouping and ordering
+required by SGP.22.
 
 Notification sequence `0` is valid and is displayed, but its explicit Remove
 action is disabled. The packaged lpac 2.3.0 reports false success without
@@ -64,15 +71,24 @@ The browser calls a small typed `luci.lpac` rpcd/ucode facade. The facade:
 
 - validates every argument and never accepts a raw command line;
 - serializes access to the eUICC with a non-blocking file lock;
-- delegates asynchronously to rpcd `file.exec` using an argv array;
+- delegates one-shot operations to rpcd `file.exec` using argv arrays;
+- runs the longer profile download in an isolated uloop worker and exposes
+  only a short-lived numeric status identifier;
 - validates the official UCI settings before every execution;
-- executes only the packaged `/usr/bin/lpac` entrypoint;
+- invokes the packaged `/usr/bin/lpac` entrypoint with positional argv;
 - parses lpac newline-delimited JSON and returns a normalized response;
 - does not return raw APDU, HTTP, activation-code, or confirmation-code data.
 
+The download worker redirects lpac stdout and stderr before execution. Current
+ucode releases support direct file-descriptor redirection. On legacy releases
+without that API, the worker uses a constant shell `exec "$@"` redirection
+shim; request values remain separate positional arguments and are never
+interpolated into the shell program.
+
 OpenWrt configures rpcd command execution with a 30-second timeout. The
-initial RPC methods are therefore limited to one-shot local eUICC operations;
-the application does not change this system-wide timeout.
+one-shot RPC methods retain that limit. Profile download instead runs in a
+bounded worker with a ten-minute ceiling and is polled through typed RPC; the
+application does not change the system-wide rpcd timeout.
 
 eUICC operations are launched through BusyBox `flock` on the same lock file
 used by configuration writes. Before either use, the backend creates or repairs
@@ -127,7 +143,8 @@ make package/luci-app-lpac/clean package/luci-app-lpac/compile V=s
 ```
 
 Real-device testing is required for every APDU backend that is claimed in a
-pull request.
+pull request. Automated download tests must use synthetic activation values
+and must not contact a provider or consume a live activation code.
 
 Read and write validation was performed on OpenWrt 25.12.5 with a Fibocom
 L850-GL and a modem-specific lpac 2.3.0-r2 package. This validates that

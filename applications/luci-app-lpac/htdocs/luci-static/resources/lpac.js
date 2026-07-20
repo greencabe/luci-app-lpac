@@ -34,6 +34,23 @@ const callListNotifications = rpc.declare({
 	expect: {}
 });
 
+const callDownloadProfile = rpc.declare({
+	object: 'luci.lpac',
+	method: 'download_profile',
+	params: [
+		'mode', 'activation_code', 'smdp', 'matching_id', 'imei',
+		'confirmation_code'
+	],
+	expect: {}
+});
+
+const callGetDownloadStatus = rpc.declare({
+	object: 'luci.lpac',
+	method: 'get_download_status',
+	params: [ 'job_id' ],
+	expect: {}
+});
+
 const callEnableProfile = rpc.declare({
 	object: 'luci.lpac',
 	method: 'enable_profile',
@@ -99,6 +116,8 @@ return baseclass.extend({
 	getInfo: safeCall(callGetInfo),
 	listProfiles: safeCall(callListProfiles),
 	listNotifications: safeCall(callListNotifications),
+	downloadProfile: safeCall(callDownloadProfile),
+	getDownloadStatus: safeCall(callGetDownloadStatus),
 	enableProfile: safeCall(callEnableProfile),
 	disableProfile: safeCall(callDisableProfile),
 	nicknameProfile: safeCall(callNicknameProfile),
@@ -118,6 +137,8 @@ return baseclass.extend({
 			return _('The request contains an invalid argument.');
 		case 'invalid_config':
 			return _('The lpac configuration is invalid.');
+		case 'job_not_found':
+			return _('The profile download job is no longer available.');
 		case 'not_installed':
 			return _('The lpac executable is not installed.');
 		case 'timeout':

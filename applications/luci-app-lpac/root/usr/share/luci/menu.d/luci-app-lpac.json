@@ -37,9 +37,18 @@
 		}
 	},
 
+	"admin/modem/lpac/download": {
+		"title": "Download",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "lpac/download"
+		}
+	},
+
 	"admin/modem/lpac/notifications": {
 		"title": "Notifications",
-		"order": 30,
+		"order": 40,
 		"action": {
 			"type": "view",
 			"path": "lpac/notifications"
@@ -48,7 +57,7 @@
 
 	"admin/modem/lpac/settings": {
 		"title": "Settings",
-		"order": 40,
+		"order": 50,
 		"action": {
 			"type": "view",
 			"path": "lpac/settings"

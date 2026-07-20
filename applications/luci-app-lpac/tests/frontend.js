@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-/* global require, __dirname, global */
+/* global require, __dirname, global, process */
 
 'use strict';
 
@@ -9,6 +9,9 @@ const path = require('path');
 
 const appRoot = path.resolve(__dirname, '..');
 let modal = null;
+let documentRoot = null;
+const notifications = [];
+const pollEntries = [];
 
 if (!String.prototype.format) {
 	Object.defineProperty(String.prototype, 'format', {
@@ -34,17 +37,51 @@ function element(tag, attrs, children) {
 		attrs = {};
 	}
 
-	return {
+	const node = {
 		tag,
 		attrs: attrs || {},
 		children: children == null ? [] : (Array.isArray(children) ? children : [ children ]),
+		style: {},
 		appendChild: function(child) {
 			this.children.push(child);
 		},
 		getAttribute: function(name) {
 			return this.attrs[name] ?? null;
+		},
+		removeAttribute: function(name) {
+			delete this.attrs[name];
+			delete this[name];
 		}
 	};
+
+	if (typeof node.attrs.style === 'string') {
+		node.attrs.style.split(';').forEach(function(rule) {
+			const parts = rule.split(':');
+
+			if (parts.length > 1)
+				node.style[parts.shift().trim()] = parts.join(':').trim();
+		});
+	}
+
+	if (node.attrs.class != null)
+		node.className = node.attrs.class;
+
+	if ([ 'input', 'select', 'textarea' ].includes(tag))
+		node.value = node.attrs.value || '';
+
+	if (tag === 'input' && node.attrs.type === 'file')
+		node.files = [];
+
+	if (tag === 'select') {
+		const selected = node.children.find(function(child) {
+			return child?.tag === 'option' && child.attrs?.selected != null;
+		});
+
+		if (selected)
+			node.value = selected.attrs.value;
+	}
+
+	return node;
 }
 
 function walk(value, callback) {
@@ -79,6 +116,9 @@ function textContent(node) {
 	if (!node || typeof node !== 'object')
 		return '';
 
+	if (Object.prototype.hasOwnProperty.call(node, 'textContent'))
+		return node.textContent;
+
 	return (node.children || []).map(textContent).join('');
 }
 
@@ -93,14 +133,45 @@ global.cbi_update_table = function(table, rows, empty) {
 	table.rows = rows;
 	table.empty = empty;
 };
-global.document = {};
+global.document = {
+	getElementById: function(id) {
+		return findAll(documentRoot, function(node) {
+			return node.attrs?.id === id;
+		})[0] || null;
+	},
+	createElement: function(tag) {
+		if (tag === 'canvas') {
+			return {
+				width: 0,
+				height: 0,
+				getContext: function() {
+					return {
+						drawImage: function() {},
+						getImageData: function() {
+							return { data: new Uint8ClampedArray(4) };
+						}
+					};
+				}
+			};
+		}
+
+		return { tag, async: false };
+	},
+	head: {
+		appendChild: function(script) {
+			throw new Error(`unexpected external script load: ${script.src}`);
+		}
+	}
+};
 global.window = { location: { reload: function() {} } };
 
 const view = { extend: function(spec) { return spec; } };
 const ui = {
 	showModal: function(title, content) { modal = { title, content }; },
-	hideModal: function() {},
-	addNotification: function() {},
+	hideModal: function() { modal = null; },
+	addNotification: function(title, content, level) {
+		notifications.push({ title, content, level });
+	},
 	createHandlerFn: function(context, handler) {
 		const args = Array.prototype.slice.call(arguments, 2);
 
@@ -109,6 +180,11 @@ const ui = {
 				? context[handler].apply(context, args)
 				: handler.apply(context, args);
 		};
+	}
+};
+const poll = {
+	add: function(callback, interval) {
+		pollEntries.push({ callback, interval });
 	}
 };
 const lpac = {
@@ -120,7 +196,7 @@ const lpac = {
 
 function loadView(relativePath) {
 	const source = fs.readFileSync(path.join(appRoot, 'htdocs/luci-static/resources/view/lpac', relativePath), 'utf8');
-	return Function('view', 'ui', 'lpac', source)(view, ui, lpac);
+	return Function('view', 'ui', 'poll', 'lpac', source)(view, ui, poll, lpac);
 }
 
 function byText(root, tag, label) {
@@ -345,7 +421,7 @@ assert.deepStrictEqual(menu['admin/modem'].depends, {},
 	'the shared Modem root must not inherit an application-specific ACL');
 assert.strictEqual(menu['admin/modem/lpac'].title, 'eSIM Manager',
 	'eSIM Manager should live below the Modem menu');
-[ 'overview', 'profiles', 'notifications', 'settings' ].forEach(function(page) {
+[ 'overview', 'profiles', 'download', 'notifications', 'settings' ].forEach(function(page) {
 	assert.ok(menu[`admin/modem/lpac/${page}`],
 		`${page} should remain a child tab below eSIM Manager`);
 });
@@ -383,4 +459,276 @@ assert.match(profileCss, /\.lpac-profile-actions > \.btn[^{]*{[^}]*font-size:\s*
 assert.doesNotMatch(profileCss, /^\s*\.table\s+\.td/m,
 	'the responsive override must not alter unrelated LuCI tables');
 
-console.log('ok - frontend controls, responsive layout, menu, and safety states');
+async function testDownloadView() {
+	const decoderAsset = require(path.join(appRoot,
+		'htdocs/luci-static/resources/jsqr.min.js'));
+	assert.strictEqual(typeof decoderAsset, 'function',
+		'the vendored jsQR asset should expose its decoder function');
+
+	const initialPollCount = pollEntries.length;
+	const downloadView = loadView('download.js');
+	const downloadPage = downloadView.render();
+	documentRoot = downloadPage;
+
+	assert.strictEqual(pollEntries.length, initialPollCount + 1,
+		'the Download view should register one status poll');
+	assert.strictEqual(pollEntries.at(-1).interval, 2,
+		'the download status should be polled every two seconds');
+
+	function downloadById(id) {
+		return findAll(downloadPage, function(node) {
+			return node.attrs?.id === id;
+		})[0];
+	}
+
+	[
+		'lpac-download-mode', 'lpac-activation-code', 'lpac-qr-file',
+		'lpac-smdp', 'lpac-matching-id', 'lpac-confirmation-code',
+		'lpac-imei', 'lpac-download-button'
+	].forEach(function(id) {
+		assert.ok(downloadById(id), `${id} should be rendered`);
+	});
+
+	const qrInput = downloadById('lpac-qr-file');
+	assert.strictEqual(qrInput.attrs.accept, 'image/png,image/jpeg,image/webp',
+		'the QR picker should limit uploads to supported image types');
+	assert.strictEqual(qrInput.attrs.capture, 'environment',
+		'the QR picker should offer the rear camera on mobile browsers');
+	assert.ok(qrInput.attrs.disabled == null,
+		'the QR picker should remain usable with write permission');
+	assert.strictEqual(findAll(downloadPage, function(node) {
+		return node.attrs?.class === 'alert-message warning';
+	}).length, 0, 'profile download should not be hidden behind a TLS warning');
+
+	const mode = downloadById('lpac-download-mode');
+	const activationFields = downloadById('lpac-download-activation-fields');
+	const manualFields = downloadById('lpac-download-manual-fields');
+	mode.value = 'manual';
+	downloadView.updateMode();
+	assert.strictEqual(activationFields.style.display, 'none',
+		'manual mode should hide activation-code controls');
+	assert.strictEqual(manualFields.style.display, '',
+		'manual mode should reveal non-interactive lpac parameters');
+
+	const smdpInput = downloadById('lpac-smdp');
+	const matchingInput = downloadById('lpac-matching-id');
+	smdpInput.value = 'smdp.example.com:443';
+	matchingInput.value = 'MATCHING-ID';
+	assert.deepStrictEqual(downloadView.collectRequest(), {
+		mode: 'manual',
+		activationCode: '',
+		smdp: 'smdp.example.com:443',
+		matchingId: 'MATCHING-ID',
+		imei: '',
+		confirmationCode: ''
+	}, 'manual mode should preserve lpac SM-DP+ and matching-ID arguments');
+	matchingInput.value = '';
+	assert.strictEqual(downloadView.collectRequest().matchingId, '',
+		'manual mode should allow the optional matching ID to be empty');
+	matchingInput.value = 'INVALID/MATCHING-ID';
+	assert.throws(function() { downloadView.collectRequest(); },
+		/The SM-DP\+ address or matching ID is invalid/,
+		'a nonempty manual matching ID should retain strict validation');
+	matchingInput.value = 'MATCHING-ID';
+	smdpInput.value = '[2001:db8::1]:65535';
+	assert.strictEqual(downloadView.collectRequest().smdp, '[2001:db8::1]:65535',
+		'the frontend should accept the bracketed IPv6 form accepted by the RPC');
+	[ 'smdp.example.com:0', 'smdp.example.com:65536',
+		'smdp.example.com/path' ].forEach(function(value) {
+		smdpInput.value = value;
+		assert.throws(function() { downloadView.collectRequest(); },
+			/The SM-DP\+ address or matching ID is invalid/,
+			`${value} should be rejected before invoking the RPC`);
+	});
+	smdpInput.value = 'smdp.example.com:443';
+
+	mode.value = 'activation';
+	downloadView.updateMode();
+	assert.strictEqual(activationFields.style.display, '',
+		'activation mode should restore activation-code controls');
+	assert.strictEqual(manualFields.style.display, 'none',
+		'activation mode should hide manual controls');
+	downloadById('lpac-activation-code').value = 'LPA:1$smdp.example.com$';
+	assert.strictEqual(downloadView.collectRequest().activationCode,
+		'LPA:1$smdp.example.com$',
+		'an upstream activation code may omit its matching ID');
+
+	let decoderCalls = 0;
+	let qrPayload = 'lpa:1$qr.example.com$';
+	const localDecoder = function(data, width, height, options) {
+		decoderCalls++;
+		assert.ok(data instanceof Uint8ClampedArray,
+			'the local decoder should receive browser pixel data');
+		assert.strictEqual(width, 320);
+		assert.strictEqual(height, 240);
+		assert.strictEqual(options.inversionAttempts, 'attemptBoth');
+		return { data: qrPayload };
+	};
+	window.jsQR = localDecoder;
+	window.FileReader = function() {};
+	window.FileReader.prototype.readAsDataURL = function() {
+		this.result = 'data:image/png;base64,AA==';
+		this.onload();
+	};
+	window.Image = function() {
+		this.naturalWidth = 320;
+		this.naturalHeight = 240;
+	};
+	Object.defineProperty(window.Image.prototype, 'src', {
+		get: function() { return this.imageSource; },
+		set: function(value) {
+			this.imageSource = value;
+			this.onload();
+		}
+	});
+
+	qrInput.files = [ { type: 'application/pdf', size: 1024 } ];
+	await downloadView.handleQRFile(qrInput);
+	assert.strictEqual(decoderCalls, 0,
+		'an explicitly unsupported MIME type should not reach the image decoder');
+	assert.strictEqual(textContent(downloadById('lpac-qr-status')),
+		'Select a PNG, JPEG, or WebP image.');
+
+	qrInput.files = [ { type: '', size: 1024 } ];
+	await downloadView.handleQRFile(qrInput);
+	assert.strictEqual(decoderCalls, 1,
+		'an image with an unspecified browser MIME type should still be decoded locally');
+	assert.strictEqual(downloadById('lpac-activation-code').value,
+		'LPA:1$qr.example.com$',
+		'a QR without a matching ID should be normalized into the activation field');
+	assert.strictEqual(downloadById('lpac-qr-preview').src,
+		'data:image/png;base64,AA==',
+		'the selected QR should receive a local data-URL preview');
+	assert.strictEqual(textContent(downloadById('lpac-qr-status')),
+		'QR code decoded. The activation-code field has been filled.');
+	assert.strictEqual(downloadById('lpac-confirmation-code').value, '',
+		'an optional confirmation code should remain empty after decoding');
+
+	window.jsQR = function() { return null; };
+	qrInput.files = [ { type: 'image/png', size: 2048 } ];
+	await downloadView.handleQRFile(qrInput);
+	assert.strictEqual(downloadById('lpac-activation-code').value, '',
+		'a failed replacement QR must clear the previously decoded activation code');
+	assert.strictEqual(downloadById('lpac-qr-preview').src, undefined,
+		'a failed replacement QR must clear the previous local preview');
+	assert.strictEqual(downloadById('lpac-qr-preview').style.display, 'none');
+	assert.strictEqual(textContent(downloadById('lpac-qr-status')),
+		'No valid eSIM activation code was found in the image.');
+
+	qrPayload = 'lpa:1$qr.example.com$QR-MATCHING-ID$$1';
+	window.jsQR = localDecoder;
+	qrInput.files = [ { type: 'image/png', size: 1024 } ];
+	await downloadView.handleQRFile(qrInput);
+	assert.strictEqual(downloadById('lpac-activation-code').value,
+		'LPA:1$qr.example.com$QR-MATCHING-ID$$1',
+		'a valid replacement QR should restore the newly decoded code');
+	assert.strictEqual(downloadById('lpac-confirmation-code').value, '',
+		'a QR requiring confirmation should decode before its code is entered');
+
+	downloadById('lpac-confirmation-code').value = '1234';
+	downloadById('lpac-imei').value = '490154203237518';
+	let downloadArguments = null;
+	let resolveDownloadStart = null;
+	lpac.downloadProfile = function() {
+		downloadArguments = Array.from(arguments);
+		return new Promise(function(resolve) {
+			resolveDownloadStart = resolve;
+		});
+	};
+
+	downloadView.showDownloadModal();
+	assert.strictEqual(modal.title, 'Download eSIM profile',
+		'Download should require confirmation before invoking lpac');
+	assert.ok(!textContent(modal.content).includes('QR-MATCHING-ID'),
+		'the confirmation dialog should not echo the activation secret');
+	assert.ok(!textContent(modal.content).includes('1234'),
+		'the confirmation dialog should not echo the confirmation code');
+
+	const confirmButton = byText(modal.content, 'button', 'Download')[0];
+	assert.ok(confirmButton, 'the confirmation dialog should expose Download');
+	const starting = confirmButton.attrs.click();
+	assert.strictEqual(downloadView.downloadStarting, true,
+		'the view should record the in-flight start request');
+	const startingModal = modal;
+	downloadView.showDownloadModal();
+	assert.strictEqual(modal, startingModal,
+		'a repeated click while starting must not replace the progress modal');
+	resolveDownloadStart({ success: true, data: { job_id: 17 } });
+	await starting;
+	assert.deepStrictEqual(downloadArguments, [
+		'activation', 'LPA:1$qr.example.com$QR-MATCHING-ID$$1', '', '',
+		'490154203237518', '1234'
+	], 'the browser should pass the complete activation code and optional flags');
+	assert.strictEqual(downloadView.activeJob, 17,
+		'the returned asynchronous job identifier should be retained');
+	assert.strictEqual(modal.title, 'Downloading eSIM profile',
+		'the UI should remain in a progress state while lpac runs');
+	const activeModal = modal;
+	downloadView.showDownloadModal();
+	assert.strictEqual(modal, activeModal,
+		'a repeated click for an active job must not replace the progress modal');
+
+	const statuses = [
+		{ success: false, error: 'transport_error' },
+		{ success: true, data: { status: 'running' } },
+		{ success: true, data: { status: 'success' } }
+	];
+	const polledJobs = [];
+	let rejectFirstPoll = true;
+	lpac.getDownloadStatus = function(jobId) {
+		polledJobs.push(jobId);
+
+		if (rejectFirstPoll) {
+			rejectFirstPoll = false;
+			return Promise.reject(new Error('temporary RPC failure'));
+		}
+
+		return Promise.resolve(statuses.shift());
+	};
+	await downloadView.pollDownload();
+	assert.strictEqual(downloadView.activeJob, 17,
+		'a rejected status request should not abandon the running backend task');
+	await downloadView.pollDownload();
+	assert.strictEqual(downloadView.activeJob, 17,
+		'a transport error should not abandon the running backend task');
+	await downloadView.pollDownload();
+	assert.strictEqual(downloadView.activeJob, 17,
+		'a running download should remain active');
+	await downloadView.pollDownload();
+	assert.strictEqual(downloadView.activeJob, null,
+		'a completed download should leave the active state');
+	assert.deepStrictEqual(polledJobs, [ 17, 17, 17, 17 ],
+		'status polling should use only the opaque job identifier');
+	assert.strictEqual(downloadById('lpac-activation-code').value, '',
+		'the activation secret should be cleared after success');
+	assert.strictEqual(downloadById('lpac-confirmation-code').value, '',
+		'the confirmation code should be cleared after success');
+	assert.strictEqual(downloadById('lpac-imei').value, '',
+		'the optional IMEI should be cleared after success');
+	assert.strictEqual(downloadById('lpac-qr-preview').style.display, 'none',
+		'the local QR preview should be cleared after success');
+	assert.strictEqual(notifications.at(-1).level, 'info',
+		'a successful profile download should produce an information notice');
+
+	L.hasViewPermission = function() { return false; };
+	const readonlyView = loadView('download.js');
+	const readonlyPage = readonlyView.render();
+	documentRoot = readonlyPage;
+	[ 'lpac-download-mode', 'lpac-activation-code', 'lpac-qr-file',
+		'lpac-download-button' ].forEach(function(id) {
+		const control = findAll(readonlyPage, function(node) {
+			return node.attrs?.id === id;
+		})[0];
+
+		assert.ok(control.attrs.disabled != null,
+			`${id} should be disabled without write permission`);
+	});
+	L.hasViewPermission = function() { return true; };
+}
+
+testDownloadView().then(function() {
+	console.log('ok - frontend controls, download flow, QR decoding, menu, and safety states');
+}).catch(function(error) {
+	console.error(error);
+	process.exitCode = 1;
+});

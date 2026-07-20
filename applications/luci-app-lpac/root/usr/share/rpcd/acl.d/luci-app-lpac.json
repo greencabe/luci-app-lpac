@@ -9,6 +9,7 @@
 					"get_info",
 					"list_profiles",
 					"list_notifications",
+					"get_download_status",
 					"get_config"
 				]
 			}
@@ -20,6 +21,7 @@
 					"disable_profile",
 					"nickname_profile",
 					"delete_profile",
+					"download_profile",
 					"remove_notification",
 					"set_config"
 				]
