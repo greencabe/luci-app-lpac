@@ -11,7 +11,7 @@ SM-DS and IMEI could silently omit one of them.
 
 --- a/src/applet/profile/discovery.c
 +++ b/src/applet/profile/discovery.c
-@@ -43,7 +43,6 @@ static int applet_main(int argc, char **
+@@ -42,7 +42,6 @@ static int applet_main(int argc, char **
              return -1;
              break;
          }

@@ -28,7 +28,7 @@ success after ignoring an invalid argument.
  
  #include <euicc/es10b.h>
  #include <euicc/es10c.h>
-@@ -77,16 +78,12 @@ static int applet_main(const int argc, c
+@@ -78,14 +79,10 @@ static int applet_main(const int argc, c
  
      } else {
          for (int i = optind; i < argc; i++) {
@@ -47,8 +47,6 @@ success after ignoring an invalid argument.
              }
              if (!retrieve_notification(eid, seqNumber)) {
                  fret = -1;
-                 break;
-             }
 --- /dev/null
 +++ b/src/applet/notification/notification_sequence.c
 @@ -0,0 +1,31 @@
@@ -105,7 +103,7 @@ success after ignoring an invalid argument.
  
  #include <euicc/es10b.h>
  #include <euicc/es9p.h>
-@@ -102,18 +103,12 @@ static int applet_main(int argc, char **
+@@ -101,16 +102,10 @@ static int applet_main(int argc, char **
          }
      } else {
          for (int i = optind; i < argc; i++) {
@@ -126,8 +124,6 @@ success after ignoring an invalid argument.
              }
              if (_process_single(seqNumber, autoremove)) {
                  fret = -1;
-                 break;
-             }
 --- a/src/applet/notification/remove.c
 +++ b/src/applet/notification/remove.c
 @@ -1,4 +1,5 @@
@@ -136,7 +132,7 @@ success after ignoring an invalid argument.
  
  #include <euicc/es10b.h>
  #include <lpac/utils.h>
-@@ -76,18 +77,11 @@ static int applet_main(int argc, char **
+@@ -75,18 +76,11 @@ static int applet_main(int argc, char **
          }
      } else {
          for (int i = optind; i < argc; i++) {

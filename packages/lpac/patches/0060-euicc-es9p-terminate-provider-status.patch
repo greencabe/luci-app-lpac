@@ -12,7 +12,7 @@ remain NUL-terminated when truncated to the fixed libeuicc status buffers.
 
 --- a/euicc/es9p.c
 +++ b/euicc/es9p.c
-@@ -182,28 +182,27 @@ static int es9p_trans_json(struct euicc_
+@@ -185,28 +185,27 @@ static int es9p_trans_json(struct euicc_
  
          if (cJSON_HasObjectItem(statusCodeData, "reasonCode")
              && cJSON_IsString(cJSON_GetObjectItem(statusCodeData, "reasonCode"))) {

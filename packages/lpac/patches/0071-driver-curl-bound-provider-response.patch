@@ -16,7 +16,8 @@ diagnostics only on stderr so the lpac NDJSON protocol remains intact.
 
 --- a/driver/http/curl.c
 +++ b/driver/http/curl.c
-@@ -32,6 +32,8 @@ static void *libcurl_interface_dlhandle
+@@ -31,6 +31,8 @@ typedef int CURLINFO;
+ static void *libcurl_interface_dlhandle = NULL;
  #endif
  
 +#define HTTP_RESPONSE_MAX_SIZE ((size_t)16U * 1024U * 1024U)
@@ -24,7 +25,6 @@ diagnostics only on stderr so the lpac NDJSON protocol remains intact.
  struct http_trans_response_data {
      uint8_t *data;
      size_t size;
- };
 @@ -50,15 +52,28 @@ static struct libcurl_interface {
  } libcurl;
  

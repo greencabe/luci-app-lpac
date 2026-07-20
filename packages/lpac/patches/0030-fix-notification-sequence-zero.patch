@@ -36,7 +36,7 @@ pointer instead.
              if (_process_single(seqNumber, autoremove)) {
 --- a/src/applet/notification/remove.c
 +++ b/src/applet/notification/remove.c
-@@ -83,6 +83,6 @@ static int applet_main(int argc, char **
+@@ -83,7 +83,7 @@ static int applet_main(int argc, char **
              // Although POSIX said user should check errno instead of return value,
              // but errno may not be set when no conversion is performed according to C99.
              // Check nptr is same as str_end to ensure there is no conversion.
@@ -44,3 +44,4 @@ pointer instead.
 +            if (argv[i] == str_end || errno != 0) {
                  continue;
              }
+ 

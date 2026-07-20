@@ -15,7 +15,7 @@ closed before es10b_prepare_download().
 
 --- a/src/applet/profile/download.c
 +++ b/src/applet/profile/download.c
-@@ -232,12 +232,13 @@ static int applet_main(int argc, char **
+@@ -243,13 +243,14 @@ static int applet_main(int argc, char **
  
          jprint_progress_obj("es8p_meatadata_parse", jmetadata);
  
@@ -36,3 +36,4 @@ closed before es10b_prepare_download().
 +            cancelled = 1;
          }
      }
+ 

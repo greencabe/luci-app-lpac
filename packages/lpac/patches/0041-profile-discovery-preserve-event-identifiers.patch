@@ -160,7 +160,7 @@ bounded, NUL-terminated buffers and cap the number of entries.
  
  #include <stdio.h>
  #include <stdlib.h>
-@@ -395,6 +396,27 @@ exit:
+@@ -393,6 +394,27 @@ exit:
      return fret;
  }
  
@@ -188,7 +188,7 @@ bounded, NUL-terminated buffers and cap the number of entries.
  int es9p_initiate_authentication(struct euicc_ctx *ctx) {
      int fret;
  
-@@ -525,6 +547,23 @@ int es11_authenticate_client(struct euic
+@@ -526,6 +548,23 @@ int es11_authenticate_client(struct euic
      return fret;
  }
  
@@ -236,7 +236,7 @@ bounded, NUL-terminated buffers and cap the number of entries.
 +void es11_event_list_free_all(struct es11_event_entry *events);
 --- a/src/applet/profile/discovery.c
 +++ b/src/applet/profile/discovery.c
-@@ -12,7 +12,7 @@
+@@ -11,7 +11,7 @@
  #include <string.h>
  #include <unistd.h>
  
@@ -245,7 +245,7 @@ bounded, NUL-terminated buffers and cap the number of entries.
  
  static int applet_main(int argc, char **argv) {
      int fret;
-@@ -21,7 +21,9 @@ static int applet_main(int argc, char **
+@@ -20,7 +20,9 @@ static int applet_main(int argc, char **
  
      char *smds = NULL;
      char *imei = NULL;
@@ -255,7 +255,7 @@ bounded, NUL-terminated buffers and cap the number of entries.
      _cleanup_es11_smdp_list_ char **smdp_list = NULL;
  
      cJSON *jdata = NULL;
-@@ -35,11 +37,15 @@ static int applet_main(int argc, char **
+@@ -33,11 +35,15 @@ static int applet_main(int argc, char **
          case 'i':
              imei = strdup(optarg);
              break;
@@ -316,7 +316,7 @@ bounded, NUL-terminated buffers and cap the number of entries.
      jprint_success(jdata);
 --- a/utils/lpac/utils.h
 +++ b/utils/lpac/utils.h
-@@ -36,5 +36,8 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(struct es10c
+@@ -35,6 +35,9 @@ DEFINE_TRIVIAL_CLEANUP_FUNC(struct es10c
  DEFINE_TRIVIAL_CLEANUP_FUNC(char **, es11_smdp_list_free_all);
  #define _cleanup_es11_smdp_list_ _cleanup_(es11_smdp_list_free_allp)
  
@@ -325,3 +325,4 @@ bounded, NUL-terminated buffers and cap the number of entries.
 +
  static inline void freep(void *p) { free(*(void **)p); }
  #define _cleanup_free_ _cleanup_(freep)
+ 
