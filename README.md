@@ -22,14 +22,18 @@ architecture, locking model, supported operations, and security boundaries.
 
 - Read eUICC information and compiled lpac drivers.
 - List, enable, disable, rename, and delete profiles.
+- Download profiles from a complete LPA activation code, a QR image decoded
+  locally in the browser, or the non-interactive manual parameters supported
+  by lpac.
 - List and explicitly remove local eUICC notifications.
 - Configure validated official AT, uqmi, MBIM, and PC/SC settings.
 - Serialize LuCI eUICC operations through a root-owned runtime lock.
 
-Profile download, SM-DS discovery, notification processing, modem resets, and
-network-interface control are intentionally out of scope. lpac 2.3.0 disables
-curl peer and hostname verification, so network operations are not exposed in
-the web interface.
+SM-DS discovery, network notification processing, modem resets, and
+network-interface control remain out of scope. Profile download deliberately
+mirrors the packaged `lpac profile download` interface and inherits the HTTP
+and TLS behavior of the installed lpac transport; LuCI neither replaces nor
+independently verifies that transport.
 
 ## Compatibility
 
@@ -79,10 +83,9 @@ slot-mapping option and a binary that correctly parses UCI boolean values.
 
 ## Development
 
-The repository runs source validation, 42 mocked rpcd/ucode checks, frontend
-DOM-attribute regression tests, and SDK builds for OpenWrt 25.12.5 and
-snapshot. See [CONTRIBUTING.md](CONTRIBUTING.md) for local commands and DCO
-requirements.
+The repository runs source validation, mocked rpcd/ucode checks, frontend
+regression tests, and SDK builds for OpenWrt 25.12.5 and snapshot. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for local commands and DCO requirements.
 
 Do not post activation codes, confirmation codes, EIDs, ICCIDs, raw APDU logs,
 or HTTP debug payloads in public issues.

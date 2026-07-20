@@ -23,14 +23,22 @@ template is reproducible. The SDK workflow must build only `luci-app-lpac`.
 - Never accept a raw command, executable path, shell fragment, or environment
   variable from the browser.
 - Keep all process arguments as separate argv elements.
+- Keep any legacy compatibility shell program constant and pass request values
+  only through positional argv; never interpolate them into the program text.
 - Do not expose raw lpac stdout, stderr, APDU data, activation codes, or HTTP
   payloads through RPC.
+- Never write live activation codes, confirmation codes, matching IDs, or
+  secret-bearing lpac download argv to application logs or test fixtures.
 - Do not add modem resets, network restarts, or hardware-specific patches to
   this application.
-- Do not add network lpac operations while its HTTP backend does not verify TLS
-  peers and hostnames.
+- Network methods must mirror documented lpac arguments, inherit the configured
+  HTTP transport without silently changing its verification policy, and state
+  that boundary accurately in user-facing documentation.
+- Preserve the license and source provenance of third-party frontend assets.
 - Preserve granular read/write rpcd ACLs.
 - Add tests for every backend validation or normalization change.
+- Use synthetic download parameters in automated tests; never consume a live
+  provider activation code or contact an SM-DP+ service from CI.
 
 ## Translations
 

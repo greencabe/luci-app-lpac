@@ -54,14 +54,17 @@ from LuCI Settings or `/etc/config/lpac`.
 The slot-mapping bypass can be changed at
 `Modem → eSIM Manager → Settings → MBIM backend` or through UCI.
 
-## Security limitation
+## HTTP and TLS transport
 
-lpac v2.3.0 does not verify curl TLS peers or hostnames. The LuCI application
-therefore does not expose profile download, SM-DS discovery, or network
-notification processing. Do not use the bundled lpac CLI for network-facing
-operations involving activation codes or credentials.
+The Download view invokes the packaged `lpac profile download` operation and
+inherits its configured HTTP transport. LuCI does not replace or independently
+verify that transport. This bundled lpac v2.3.0 build disables curl peer and
+hostname verification, so users should assess that behavior before submitting
+activation or confirmation credentials. QR images are decoded locally in the
+browser and are not uploaded to the router. SM-DS discovery and network
+notification processing are not exposed by this LuCI release.
 
 Install only the ZIP matching both your OpenWrt major release and package
 architecture. Each ZIP contains `INSTALL.txt` and `SHA256SUMS`. Installation
 requires access to the matching official OpenWrt feeds for runtime
-dependencies such as LuCI, libcurl, libmbim, and uqmi.
+dependencies such as LuCI, `ucode-mod-uloop`, libcurl, libmbim, and uqmi.

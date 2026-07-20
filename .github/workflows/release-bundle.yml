@@ -124,7 +124,8 @@ jobs:
           mkdir -p build-feed/contrib
           cp -a packages/lpac build-feed/contrib/
 
-          grep -Fx 'LUCI_DEPENDS:=+luci-base +lpac' \
+          # Keep both runtime dependencies in the bundled package metadata.
+          grep -Fx 'LUCI_DEPENDS:=+luci-base +lpac +ucode-mod-uloop' \
             build-feed/applications/luci-app-lpac/Makefile
           grep -Fx 'LUCI_EXTRA_DEPENDS:=lpac (>=2.3.0.438-r2)' \
             build-feed/applications/luci-app-lpac/Makefile
@@ -244,8 +245,10 @@ jobs:
           The default APDU backend for new installations is MBIM.
           The same option is available in Modem > eSIM Manager > Settings.
 
-          lpac 2.3.0 does not verify TLS peers. Do not use its network-facing
-          CLI operations with credentials or activation codes.
+          Profile Download uses the configured lpac HTTP backend. This bundled
+          lpac 2.3.0 build does not verify TLS peers or hostnames, and LuCI does
+          not provide independent transport verification. Assess this behavior
+          before entering activation or confirmation credentials.
           EOF
 
           (

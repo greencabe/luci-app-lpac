@@ -57,13 +57,16 @@ jobs:
           rm -rf build-feed/applications/luci-app-lpac
           cp -a applications/luci-app-lpac build-feed/applications/
 
-          # Preserve the upstream-oriented source. Remove lpac only from the
-          # temporary build graph because this workflow compiles the LuCI app
-          # alone; the versioned runtime dependency remains in package metadata.
-          grep -Fx 'LUCI_DEPENDS:=+luci-base +lpac' \
+          # Preserve the source tree. Remove only lpac from the temporary build
+          # graph because this workflow compiles the LuCI app alone. Keep the
+          # standard uloop module dependency in the emitted package metadata;
+          # the versioned lpac requirement remains in LUCI_EXTRA_DEPENDS.
+          grep -Fx 'LUCI_DEPENDS:=+luci-base +lpac +ucode-mod-uloop' \
             applications/luci-app-lpac/Makefile
           sed -i \
-            's/^LUCI_DEPENDS:=+luci-base +lpac$/LUCI_DEPENDS:=+luci-base/' \
+            's/^LUCI_DEPENDS:=+luci-base +lpac +ucode-mod-uloop$/LUCI_DEPENDS:=+luci-base +ucode-mod-uloop/' \
+            build-feed/applications/luci-app-lpac/Makefile
+          grep -Fx 'LUCI_DEPENDS:=+luci-base +ucode-mod-uloop' \
             build-feed/applications/luci-app-lpac/Makefile
           grep -Fx 'LUCI_EXTRA_DEPENDS:=lpac (>=2.3.0.438-r2)' \
             build-feed/applications/luci-app-lpac/Makefile

@@ -160,6 +160,6 @@ jobs:
           set -euxo pipefail
           export PATH="${GITHUB_WORKSPACE}/build/ucode-out:${PATH}"
           applications/luci-app-lpac/tests/run-tests.sh
-          ucode -c,dynlink=fs,dynlink=ubus,dynlink=uci \
+          ucode -c,dynlink=fs,dynlink=ubus,dynlink=uci,dynlink=uloop \
             -o /dev/null \
             applications/luci-app-lpac/root/usr/share/rpcd/ucode/luci.lpac
