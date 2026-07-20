@@ -426,17 +426,17 @@ function run_raw_group_signal(setsid_path, shell_path, kill_path, pid_file) {
 
 			try {
 				delivered = system([
-					kill_path, '-KILL', `-${process_pid}`
+					kill_path, '-KILL', '--', `-${process_pid}`
 				]) == 0;
 			}
 			catch (e) {
-				/* Try the procps-compatible form below. */
+				/* Try the BusyBox-compatible form below. */
 			}
 
 			if (!delivered) {
 				try {
 					delivered = system([
-						kill_path, '-KILL', '--', `-${process_pid}`
+						kill_path, '-KILL', `-${process_pid}`
 					]) == 0;
 				}
 				catch (e) {

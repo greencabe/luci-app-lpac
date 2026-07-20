@@ -1269,20 +1269,21 @@ function signal_download_process(job) {
 	let delivered = false;
 
 	/*
-	 * BusyBox accepts a negative process-group operand directly but rejects
-	 * `--`; procps may require `--`. Short-circuit after the first successful
-	 * fixed argv form so the signal is never deliberately delivered twice.
+	 * procps needs `--` to disambiguate a negative process-group operand while
+	 * BusyBox rejects `--`. Try the unambiguous procps form first: some procps
+	 * versions can report success for the plain form without delivering it.
+	 * Short-circuit after the first successful fixed argv form.
 	 */
 	try {
-		delivered = system([ KILL_PATH, '-KILL', group ]) == 0;
+		delivered = system([ KILL_PATH, '-KILL', '--', group ]) == 0;
 	}
 	catch (e) {
-		/* Try the procps-compatible form below. */
+		/* Try the BusyBox-compatible form below. */
 	}
 
 	if (!delivered) {
 		try {
-			delivered = system([ KILL_PATH, '-KILL', '--', group ]) == 0;
+			delivered = system([ KILL_PATH, '-KILL', group ]) == 0;
 		}
 		catch (e) {
 			/* Process and output callbacks remain authoritative. */

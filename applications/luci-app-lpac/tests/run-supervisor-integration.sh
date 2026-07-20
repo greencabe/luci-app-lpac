@@ -28,8 +28,8 @@ valid_pid() {
 kill_group() {
 	group=$1
 
-	"$KILL_PATH" -KILL "-$group" 2>/dev/null && return 0
-	"$KILL_PATH" -KILL -- "-$group" 2>/dev/null
+	"$KILL_PATH" -KILL -- "-$group" 2>/dev/null && return 0
+	"$KILL_PATH" -KILL "-$group" 2>/dev/null
 }
 
 cleanup_group() {

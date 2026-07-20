@@ -1192,8 +1192,8 @@ global.TEST_TIMERS[1].callback();
 check(length(global.TEST_SYSTEM_CALLS) == 1,
 	'preview cleanup grace expiry kills the complete isolated process group');
 const portable_kill = global.TEST_SYSTEM_CALLS[0]?.argv;
-same(portable_kill, [ '/bin/kill', '-KILL', '-4321' ],
-	'BusyBox process-group kill uses one fixed positional argv form');
+same(portable_kill, [ '/bin/kill', '-KILL', '--', '-4321' ],
+	'procps process-group kill uses the guarded fixed argv form first');
 emit_download_output(terminal('', -1, 'cancelled'));
 global.TEST_LAST_PROCESS.output(0);
 end_download_output();
@@ -1207,9 +1207,9 @@ global.TEST_SYSTEM_EXITS = [ 1, 0 ];
 result = manual_download('smdp.example.com', 'MATCH', '', '');
 emit_download_output(download_progress('es10b_prepare_download', 'provider'));
 same(map(global.TEST_SYSTEM_CALLS, call => call.argv), [
-	[ '/bin/kill', '-KILL', '-4321' ],
-	[ '/bin/kill', '-KILL', '--', '-4321' ]
-], 'procps process-group kill falls back to the guarded fixed argv form');
+	[ '/bin/kill', '-KILL', '--', '-4321' ],
+	[ '/bin/kill', '-KILL', '-4321' ]
+], 'BusyBox process-group kill falls back to its plain fixed argv form');
 check(global.TEST_TIMERS[3].timeout == -1,
 	'a successful process-group kill does not arm the retry timer');
 global.TEST_LAST_PROCESS.output(DOWNLOAD_EXIT_FAILED);
@@ -1224,8 +1224,8 @@ check(length(global.TEST_SYSTEM_CALLS) == 2 &&
 	'a failed process-group delivery arms the bounded retry timer');
 global.TEST_TIMERS[3].callback();
 check(length(global.TEST_SYSTEM_CALLS) == 3 &&
-	global.TEST_SYSTEM_CALLS[2].argv[2] == '-4321',
-	'the kill retry short-circuits after a later plain-form success');
+	global.TEST_SYSTEM_CALLS[2].argv[2] == '--',
+	'the kill retry short-circuits after a later guarded-form success');
 global.TEST_LAST_PROCESS.output(DOWNLOAD_EXIT_FAILED);
 end_download_output();
 
