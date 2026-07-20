@@ -1258,6 +1258,33 @@ assert.strictEqual(menu['admin/network/lpac'].wildcard, true,
 assert.strictEqual(menu['admin/network/lpac'].title, undefined,
 	'the compatibility alias must not remain visible in Network');
 
+const acl = JSON.parse(fs.readFileSync(path.join(appRoot,
+	'root/usr/share/rpcd/acl.d/luci-app-lpac.json'), 'utf8'));
+const rpcPolicy = acl['luci-app-lpac'];
+assert.deepStrictEqual(rpcPolicy.read.ubus['luci.lpac'], [
+	'get_version',
+	'get_drivers',
+	'get_info',
+	'list_profiles',
+	'list_notifications',
+	'get_download_status',
+	'get_config'
+], 'the read ACL should cover every read-only LuCI RPC');
+assert.deepStrictEqual(rpcPolicy.write.ubus['luci.lpac'], [
+	'enable_profile',
+	'disable_profile',
+	'nickname_profile',
+	'delete_profile',
+	'download_discovered_profile',
+	'download_profile',
+	'discover_profiles',
+	'process_notification',
+	'remove_notification',
+	'respond_download_preview',
+	'set_default_smdp',
+	'set_config'
+], 'the write ACL should cover every state-changing LuCI RPC');
+
 const profileCss = fs.readFileSync(path.join(appRoot,
 	'htdocs/luci-static/resources/view/lpac/profiles.css'), 'utf8');
 assert.ok(profileCss.includes('#lpac-profile-table,\n\t#lpac-profile-table > tbody {\n\t\tdisplay: block;'),
