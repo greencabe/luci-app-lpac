@@ -9,27 +9,6 @@
 	min-width: 0;
 }
 
-.lpac-profile-identity {
-	display: inline-flex;
-	align-items: center;
-	gap: .55rem;
-}
-
-.lpac-profile-icon {
-	width: 40px;
-	height: 40px;
-	border-radius: .35rem;
-	object-fit: contain;
-	flex: 0 0 40px;
-}
-
-.lpac-profile-icon-fallback {
-	box-sizing: border-box;
-	border: 1px solid currentColor;
-	opacity: .35;
-	background: linear-gradient(135deg, transparent 42%, currentColor 43%, currentColor 57%, transparent 58%);
-}
-
 @media screen and (max-width: 854px) {
 	#lpac-profile-table,
 	#lpac-profile-table > tbody {

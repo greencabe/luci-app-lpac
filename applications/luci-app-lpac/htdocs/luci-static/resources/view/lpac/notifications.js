@@ -289,9 +289,6 @@ return view.extend({
 				: _('Notification data is unavailable.')
 		]));
 
-		if (result?.success === true)
-			lpac.markDownloadVerification('notifications');
-
 		const processAll = E('button', {
 			'class': 'btn cbi-button cbi-button-positive',
 			'disabled': isReadonlyView || this.processing ||
@@ -307,8 +304,8 @@ return view.extend({
 			E('div', { 'class': 'cbi-map-descr' }, [
 				_('Profile operations can create notifications that should normally be sent to the provider.')
 			]),
-			E('div', { 'class': 'alert-message notice', 'role': 'note' }, [
-				_('Process sends a notification to its provider over verified HTTPS. Remove only discards the local eUICC record and must not be used before provider processing unless you deliberately accept that loss.')
+			E('div', { 'class': 'alert-message warning', 'role': 'note' }, [
+				_('Security warning: the bundled lpac does not verify the provider TLS certificate or hostname. Process uses that inherited transport. Remove only discards the local eUICC record and must not be used before provider processing unless you deliberately accept that loss.')
 			]),
 			(!result || !result.success)
 				? E('div', { 'class': 'alert-message warning' }, [ lpac.errorMessage(result) ])

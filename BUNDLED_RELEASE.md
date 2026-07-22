@@ -23,21 +23,22 @@ The binary is built from the official lpac v2.3.0 archive with:
 1. OpenWrt's uqmi backend patch.
 2. A downstream fix for the uqmi patch's duplicated, hard-coded client setup
    command so `LPAC_QMI_DEV` is honored.
-3. The environment boolean parser fix merged in upstream pull request 308.
-4. The version fix already merged in upstream lpac pull request 310.
+3. The version-handling refactor merged in upstream pull request 310.
+4. The environment boolean parser fix merged in upstream pull request 308.
 5. The MBIM UICC compatibility changes merged from upstream pull request 438
    as commit `79fcec9d89a247f1a1995f7b4560ea819bfe654f`.
-6. Notification sequence zero handling from upstream pull request 429 plus a
-   strict decimal `uint32_t` parser that rejects truncation and trailing data.
-7. Correct discovery option parsing and `profile discovery -j`, which keeps
-   both the SM-DS EventID and RSP server address for direct download.
-8. A mandatory `profile download -p` confirmation gate even when the provider
-   omits profile metadata.
+6. Notification sequence zero handling from upstream pull request 429.
+7. A strict decimal `uint32_t` notification-sequence parser that rejects
+   signs, truncation, overflow, whitespace, and trailing data.
+8. A fail-closed interactive preview gate. `lpac profile download -p` always
+   pauses for a decision before PrepareDownload, including when provider
+   metadata is absent.
 9. Provider-status string hardening from upstream pull request 444 / commit
    `3ff35594ec15062a3ed10c3da1c26eb0a13390b8`.
-10. Curl peer and hostname verification using OpenWrt's system CA bundle.
-11. Overflow-safe curl response accumulation capped at 16 MiB to prevent a
-    provider response from exhausting router memory.
+
+SM-DS discovery, direct discovered-order download, curl TLS verification, and
+provider-response memory bounds are intentionally deferred from this staged
+nine-patch set.
 
 The downstream package version is `2.3.0.444-r1`; `lpac version` reports the
 upstream source version `2.3.0`. These upstream fixes were merged after the
@@ -67,18 +68,14 @@ The slot-mapping bypass can be changed at
 
 ## HTTP and TLS transport
 
-The Download view invokes the packaged `lpac profile download` operation and
-inherits its configured HTTP transport. LuCI does not replace or independently
-verify that transport. This bundled build enables curl certificate-chain and
-hostname verification against `/etc/ssl/certs/ca-certificates.crt` and depends
-explicitly on `ca-bundle`. A wrong router clock, an invalid provider
-certificate, or a missing trust anchor therefore fails closed. QR images are
-decoded locally in the browser and are not uploaded to the router. Provider
-response bodies above 16 MiB fail closed before further JSON/base64 copies can
-amplify their memory use.
+The Download and notification Process views invoke the packaged lpac network
+operations and inherit its configured HTTP transport. LuCI does not replace or
+independently verify that transport. This staged build retains v2.3.0's curl
+behavior, which disables certificate-chain and hostname verification. Use
+network-facing operations only with a trusted provider source and network. QR
+images are decoded locally in the browser and are not uploaded to the router.
 
 Install only the ZIP matching both your OpenWrt major release and package
 architecture. Each ZIP contains `INSTALL.txt` and `SHA256SUMS`. Installation
 requires access to the matching official OpenWrt feeds for runtime
-dependencies such as LuCI, `ucode-mod-uloop`, `ca-bundle`, libcurl, libmbim,
-and uqmi.
+dependencies such as LuCI, `ucode-mod-uloop`, libcurl, libmbim, and uqmi.

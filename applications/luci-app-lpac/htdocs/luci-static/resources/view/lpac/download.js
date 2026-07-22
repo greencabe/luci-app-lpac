@@ -10,7 +10,6 @@
 const isReadonlyView = !L.hasViewPermission() || null;
 const maxQRFileSize = 8 * 1024 * 1024;
 const maxQRImagePixels = 40000000;
-const maxActivationRawLength = 4352;
 const qrDecodeSizes = [ 1600, 1200, 900, 700 ];
 const jobOriginOwned = 'owned';
 const jobOriginExternal = 'external';
@@ -21,7 +20,6 @@ const activationEdgeMarks = [
 	'\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\u2066', '\u2067',
 	'\u2068', '\u2069', '\ufeff'
 ];
-const activationEdgeMarkSet = new Set(activationEdgeMarks);
 let jsQRPromise = null;
 
 function formRow(label, input, description) {
@@ -56,23 +54,30 @@ function textInput(id, type, placeholder, maxlength, disabled, inputHandler) {
 }
 
 function normalizeActivationCode(value) {
-	value = String(value || '');
+	value = String(value || '').trim();
 
-	if (value.length > maxActivationRawLength)
-		return '';
+	while (value.length) {
+		let changed = false;
 
-	let start = 0;
-	let end = value.length;
+		for (let i = 0; i < activationEdgeMarks.length; i++) {
+			const mark = activationEdgeMarks[i];
 
-	while (start < end && (/\s/.test(value[start]) ||
-	       activationEdgeMarkSet.has(value[start])))
-		start++;
+			if (value.startsWith(mark)) {
+				value = value.slice(mark.length).trim();
+				changed = true;
+				break;
+			}
 
-	while (end > start && (/\s/.test(value[end - 1]) ||
-	       activationEdgeMarkSet.has(value[end - 1])))
-		end--;
+			if (value.endsWith(mark)) {
+				value = value.slice(0, -mark.length).trim();
+				changed = true;
+				break;
+			}
+		}
 
-	value = value.slice(start, end);
+		if (!changed)
+			break;
+	}
 
 	value = /^lpa:/i.test(value) ? `LPA:${value.slice(4)}` : value;
 
@@ -95,7 +100,23 @@ function hasActivationFormatMark(value) {
 }
 
 function validSmdp(value) {
-	return lpac.validSmdpAddress(value);
+	if (!value || value.length > 255 || value.includes('..'))
+		return false;
+
+	const parsed = value.match(
+		/^(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(?::([0-9]{1,5}))?$/);
+
+	if (!parsed)
+		return false;
+
+	if (parsed[1]) {
+		const port = Number(parsed[1]);
+
+		if (port < 1 || port > 65535)
+			return false;
+	}
+
+	return true;
 }
 
 function validMatchingId(value) {
@@ -154,11 +175,10 @@ function isIdleDownloadStatus(result) {
 
 function isTerminalDownloadStatus(result) {
 	if (result?.success === true)
-		return [ 'success', 'cancelled', 'error' ].includes(result.data?.status);
+		return result.data?.status === 'success' || result.data?.status === 'cancelled';
 
 	return result?.success === false && [
-		'execution_failed', 'lpac_error', 'not_installed', 'preview_timeout',
-		'timeout'
+		'execution_failed', 'lpac_error', 'not_installed', 'timeout'
 	].includes(result.error);
 }
 
@@ -263,9 +283,6 @@ return view.extend({
 	activeSmdp: null,
 	downloadStarting: false,
 	checkingCurrentJob: false,
-	discovering: false,
-	discoveryEntries: [],
-	discoveryGeneration: 0,
 	previewDecisionSent: false,
 	previewModalJob: null,
 	qrActivationCode: null,
@@ -273,12 +290,8 @@ return view.extend({
 	qrDecoding: false,
 	pollRegistered: false,
 	statusFailures: 0,
-	statusCheckInFlight: null,
 	pendingStartResult: null,
 	retryBlocked: false,
-	verificationPending: false,
-	verificationStorageAvailable: true,
-	verificationListenerRegistered: false,
 
 	load: function() {
 		this.activeJob = null;
@@ -288,88 +301,16 @@ return view.extend({
 		this.activeSmdp = null;
 		this.downloadStarting = false;
 		this.checkingCurrentJob = false;
-		this.discovering = false;
-		this.discoveryEntries = [];
 		this.previewDecisionSent = false;
 		this.previewModalJob = null;
 		this.pendingStartResult = null;
 		this.statusFailures = 0;
-		this.statusCheckInFlight = null;
-		this.syncVerificationRequired();
-
-		return this.runStatusCheck(function() {
-			return L.resolveDefault(lpac.getDownloadStatus(0, ''), null);
-		});
-	},
-
-	runStatusCheck: function(callback) {
-		if (this.statusCheckInFlight)
-			return this.statusCheckInFlight;
-
-		const request = Promise.resolve().then(callback);
-		let tracked;
-
-		tracked = request.then(function(result) {
-			if (this.statusCheckInFlight === tracked)
-				this.statusCheckInFlight = null;
-
-			return result;
-		}.bind(this), function(error) {
-			if (this.statusCheckInFlight === tracked)
-				this.statusCheckInFlight = null;
-
-			throw error;
-		}.bind(this));
-		this.statusCheckInFlight = tracked;
-
-		return tracked;
-	},
-
-	syncVerificationRequired: function(updatePage) {
-		const verification = lpac.getDownloadVerification();
-
-		this.retryBlocked = verification.required;
-		this.verificationPending = verification.pending;
-		this.verificationStorageAvailable = verification.storageAvailable;
-
-		if (updatePage) {
-			if (verification.pending && !this.activeJob && !this.downloadStarting &&
-			    !this.checkingCurrentJob) {
-				this.checkingCurrentJob = true;
-				this.setDownloadProgress(true,
-					_('Unable to confirm whether a profile download is already running. Retrying automatically…'));
-			}
-
-			this.setVerificationRequired(this.retryBlocked);
-			this.updateControls();
-		}
-
-		return verification;
-	},
-
-	requireVerification: function() {
-		const verification = lpac.requireDownloadVerification();
-
-		this.retryBlocked = verification.required;
-		this.verificationPending = verification.pending;
-		this.verificationStorageAvailable = verification.storageAvailable;
-		this.setVerificationRequired(this.retryBlocked);
-		this.updateControls();
-	},
-
-	settleVerification: function() {
-		const verification = lpac.settleDownloadVerification();
-
-		this.retryBlocked = verification.required;
-		this.verificationPending = verification.pending;
-		this.verificationStorageAvailable = verification.storageAvailable;
-		this.setVerificationRequired(this.retryBlocked);
-		this.updateControls();
+		this.retryBlocked = false;
+		return L.resolveDefault(lpac.getDownloadStatus(0, ''), null);
 	},
 
 	isBusy: function() {
-		return !!(this.activeJob || this.downloadStarting || this.checkingCurrentJob ||
-			this.discovering);
+		return !!(this.activeJob || this.downloadStarting || this.checkingCurrentJob);
 	},
 
 	updateControls: function() {
@@ -379,7 +320,7 @@ return view.extend({
 		[
 			'lpac-download-mode', 'lpac-activation-code', 'lpac-qr-file',
 			'lpac-qr-camera', 'lpac-qr-file-button', 'lpac-qr-camera-button',
-			'lpac-smdp', 'lpac-smds', 'lpac-matching-id', 'lpac-imei',
+			'lpac-smdp', 'lpac-matching-id', 'lpac-imei',
 			'lpac-confirmation-code', 'lpac-download-clear'
 		].forEach(function(id) {
 			const control = document.getElementById(id);
@@ -416,12 +357,8 @@ return view.extend({
 	setVerificationRequired: function(visible) {
 		const warning = document.getElementById('lpac-download-verification');
 
-		if (warning) {
+		if (warning)
 			warning.style.display = visible ? '' : 'none';
-			warning.textContent = this.verificationStorageAvailable
-				? _('The previous download outcome is unknown. Open Profiles and Notifications before returning here to retry.')
-				: _('Browser site storage is unavailable. Downloads remain disabled because LuCI cannot safely retain verification across pages; enable storage, reload LuCI, and check Profiles and Notifications before retrying.');
-		}
 	},
 
 	runningJobMessage: function() {
@@ -463,13 +400,13 @@ return view.extend({
 		if (normalizedOrigin === jobOriginOwned) {
 			if (typeof token === 'string' && /^[A-Za-z0-9_-]{32}$/.test(token))
 				this.activeDecisionToken = token;
-			else if (!this.activeDecisionToken) {
+			else {
+				this.activeDecisionToken = null;
 				normalizedOrigin = jobOriginUncertain;
-				this.requireVerification();
+				this.retryBlocked = true;
 			}
 		}
 		else {
-			/* A public status response can never transfer decision ownership. */
 			this.activeDecisionToken = null;
 			this.activeSmdp = null;
 
@@ -509,34 +446,6 @@ return view.extend({
 
 		this.previewModalJob = this.activeJob;
 		const content = [];
-		const iconUri = lpac.profileIconUri(preview?.icon);
-
-		if (preview?.icon) {
-			const fallback = E('span', {
-				'class': 'lpac-preview-icon-fallback',
-				'aria-hidden': 'true',
-				'style': iconUri
-					? 'display:none;width:64px;height:64px;border:1px solid currentColor;opacity:.35;border-radius:.4rem'
-					: 'display:inline-block;width:64px;height:64px;border:1px solid currentColor;opacity:.35;border-radius:.4rem'
-			});
-			const iconContent = [ fallback ];
-
-			if (iconUri) {
-				iconContent.unshift(E('img', {
-					'src': iconUri,
-					'alt': '',
-					'width': 64,
-					'height': 64,
-					'style': 'width:64px;height:64px;object-fit:contain;border-radius:.4rem',
-					'error': function(event) {
-						event.currentTarget.style.display = 'none';
-						fallback.style.display = 'inline-block';
-					}
-				}));
-			}
-
-			content.push(E('div', { 'class': 'center' }, iconContent));
-		}
 
 		if (preview) {
 			content.push(
@@ -548,7 +457,7 @@ return view.extend({
 		}
 		else {
 			content.push(E('div', { 'class': 'alert-message warning', 'role': 'note' }, [
-				_('The provider did not supply profile metadata. The profile identity and icon cannot be verified before installation.')
+				_('The provider did not supply profile metadata. The profile identity cannot be verified before installation.')
 			]));
 		}
 
@@ -585,7 +494,7 @@ return view.extend({
 		    this.activeJobOrigin === jobOriginOwned && this.activeDecisionToken &&
 		    !this.previewDecisionSent)
 			this.showProfilePreview(result.data.preview ?? null,
-				result.data.smdp || this.activeSmdp || '-');
+				this.activeSmdp || _('Use the default address stored on the eUICC'));
 	},
 
 	respondToPreview: function(accept) {
@@ -644,17 +553,9 @@ return view.extend({
 		const mode = document.getElementById('lpac-download-mode').value;
 		const activation = document.getElementById('lpac-download-activation-fields');
 		const manual = document.getElementById('lpac-download-manual-fields');
-		const discovery = document.getElementById('lpac-download-discovery-fields');
-		const primary = document.getElementById('lpac-download-button');
 
 		activation.style.display = mode === 'activation' ? '' : 'none';
 		manual.style.display = mode === 'manual' ? '' : 'none';
-		discovery.style.display = mode === 'discovery' ? '' : 'none';
-
-		if (primary)
-			primary.textContent = mode === 'discovery'
-				? _('Discover profiles')
-				: _('Review profile');
 	},
 
 	handleModeChange: function() {
@@ -662,24 +563,6 @@ return view.extend({
 			this.handleActivationInput();
 
 		this.updateMode();
-	},
-
-	clearDiscoveryResults: function() {
-		this.discoveryGeneration++;
-		this.discoveryEntries = [];
-
-		const results = document.getElementById('lpac-discovery-results');
-
-		if (results) {
-			if (typeof results.replaceChildren === 'function')
-				results.replaceChildren();
-			else if (Array.isArray(results.children))
-				results.children.length = 0;
-			else
-				while (results.firstChild)
-					results.removeChild(results.firstChild);
-			results.style.display = 'none';
-		}
 	},
 
 	setQRStatus: function(message, state) {
@@ -789,7 +672,7 @@ return view.extend({
 
 		[
 			'lpac-activation-code', 'lpac-smdp', 'lpac-matching-id',
-			'lpac-smds', 'lpac-imei', 'lpac-confirmation-code', 'lpac-qr-file',
+			'lpac-imei', 'lpac-confirmation-code', 'lpac-qr-file',
 			'lpac-qr-camera'
 		].forEach(function(id) {
 			const input = document.getElementById(id);
@@ -799,7 +682,6 @@ return view.extend({
 		});
 
 		this.clearQRResult();
-		this.clearDiscoveryResults();
 		this.setQRStatus('');
 		this.updateControls();
 	},
@@ -807,9 +689,8 @@ return view.extend({
 	collectRequest: function() {
 		const mode = document.getElementById('lpac-download-mode').value;
 		const activationInput = document.getElementById('lpac-activation-code');
-		const rawActivationCode = activationInput.value;
-		const activationCode = normalizeActivationCode(rawActivationCode);
-		const smdp = document.getElementById('lpac-smdp').value;
+		const activationCode = normalizeActivationCode(activationInput.value);
+		const smdp = document.getElementById('lpac-smdp').value.trim();
 		const matchingId = document.getElementById('lpac-matching-id').value.trim();
 		const imei = document.getElementById('lpac-imei').value.trim();
 		const confirmationCode = document.getElementById('lpac-confirmation-code').value.trim();
@@ -822,10 +703,6 @@ return view.extend({
 		});
 
 		if (mode === 'activation') {
-			if (rawActivationCode.length > maxActivationRawLength)
-				throw validationError(_('Enter a valid LPA:1$… activation code.'),
-					'lpac-activation-code');
-
 			const issue = activationCodeIssue(activationCode, confirmationCode, false);
 
 			if (issue === 'confirmation_required')
@@ -868,181 +745,9 @@ return view.extend({
 		};
 	},
 
-	collectDiscoveryRequest: function() {
-		const smdsInput = document.getElementById('lpac-smds');
-		const imeiInput = document.getElementById('lpac-imei');
-		const smds = smdsInput.value;
-		const imei = imeiInput.value.trim();
-
-		smdsInput.removeAttribute('aria-invalid');
-		imeiInput.removeAttribute('aria-invalid');
-
-		if (smds && !validSmdp(smds))
-			throw validationError(_('The SM-DS address is invalid.'), 'lpac-smds');
-
-		if (imei && !/^[0-9]{14,16}$/.test(imei))
-			throw validationError(_('IMEI must contain 14 to 16 digits.'), 'lpac-imei');
-
-		return { smds, imei };
-	},
-
-	renderDiscoveryResults: function() {
-		const container = document.getElementById('lpac-discovery-results');
-
-		if (!container)
-			return;
-
-		if (typeof container.replaceChildren === 'function')
-			container.replaceChildren();
-		else if (Array.isArray(container.children))
-			container.children.length = 0;
-		else
-			while (container.firstChild)
-				container.removeChild(container.firstChild);
-
-		const content = [ E('h4', {}, [ _('Discovered download orders') ]) ];
-
-		if (!this.discoveryEntries.length) {
-			content.push(E('p', {}, [
-				_('No pending download orders were returned by the SM-DS.')
-			]));
-		}
-		else {
-			content.push(E('p', { 'class': 'cbi-value-description' }, [
-				_('SM-DS does not reveal profile names here. Review an order to retrieve its provider metadata before installation.')
-			]));
-
-			this.discoveryEntries.forEach(function(entry, index) {
-				content.push(E('div', { 'class': 'cbi-section' }, [
-					E('p', {}, [
-						E('strong', {}, [ _('Order %d').format(index + 1), ': ' ]),
-						entry.smdp
-					]),
-					E('button', {
-						'class': 'btn cbi-button cbi-button-positive',
-						'disabled': isReadonlyView,
-						'click': ui.createHandlerFn(this,
-							'showDiscoveredDownloadModal', entry)
-					}, [ _('Review profile') ])
-				]));
-			}, this);
-		}
-
-		content.forEach(function(node) { container.appendChild(node); });
-		container.style.display = '';
-	},
-
-	startDiscovery: function() {
-		this.syncVerificationRequired(true);
-
-		if (this.isBusy() || this.retryBlocked)
-			return;
-
-		let request;
-
-		try {
-			request = this.collectDiscoveryRequest();
-		}
-		catch (error) {
-			const input = error.fieldId && document.getElementById(error.fieldId);
-
-			if (input) {
-				input.setAttribute('aria-invalid', 'true');
-				input.focus();
-			}
-
-			ui.addNotification(null, E('p', {}, [ error.message ]), 'error');
-			return;
-		}
-
-		this.clearDiscoveryResults();
-		const generation = this.discoveryGeneration;
-
-		this.discovering = true;
-		this.setDownloadProgress(true,
-			_('Contacting the SM-DS and checking for pending download orders…'));
-		this.updateControls();
-
-		return lpac.discoverProfiles(request.smds, request.imei).then(function(result) {
-			if (generation !== this.discoveryGeneration)
-				return;
-
-			if (!result || !result.success)
-				throw new Error(lpac.errorMessage(result));
-
-			if (!Array.isArray(result.data) || result.data.length > 64 ||
-			    !result.data.every(function(entry) {
-				return entry && typeof entry.entry_id === 'string' &&
-					/^[A-Za-z0-9_-]{32}$/.test(entry.entry_id) &&
-					validSmdp(entry.smdp);
-			}) || new Set(result.data.map(function(entry) {
-				return entry.entry_id;
-			})).size !== result.data.length)
-				throw new Error(lpac.errorMessage({ error: 'invalid_response' }));
-
-			this.discoveryEntries = result.data.slice();
-			this.renderDiscoveryResults();
-		}.bind(this)).catch(function(error) {
-			if (generation === this.discoveryGeneration)
-				ui.addNotification(null, E('p', {}, [ error.message ]), 'error');
-		}.bind(this)).finally(function() {
-			if (generation === this.discoveryGeneration) {
-				this.discovering = false;
-				this.setDownloadProgress(false);
-				this.updateControls();
-			}
-		}.bind(this));
-	},
-
-	showDiscoveredDownloadModal: function(entry) {
-		this.syncVerificationRequired(true);
-
-		if (this.isBusy() || this.retryBlocked || !entry ||
-		    !this.discoveryEntries.some(function(candidate) {
-			return candidate.entry_id === entry.entry_id;
-		}))
-			return;
-
-		const confirmationCode = document.getElementById(
-			'lpac-confirmation-code').value.trim();
-
-		if (confirmationCode.length > 255 ||
-		    /[\u0000-\u001F\u007F]/.test(confirmationCode)) {
-			ui.addNotification(null, E('p', {}, [
-				_('Confirmation code is too long or contains control characters.')
-			]), 'error');
-			return;
-		}
-
-		ui.showModal(_('Review discovered profile'), [
-			E('p', {}, [
-				_('Open the discovered order at %s and retrieve its profile preview? No installation occurs until you approve that preview.').format(entry.smdp)
-			]),
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'btn', 'click': ui.hideModal }, [ _('Cancel') ]),
-				' ',
-				E('button', {
-					'class': 'btn cbi-button-positive important',
-					'click': ui.createHandlerFn(this, 'startDiscoveredDownload',
-						entry, confirmationCode)
-				}, [ _('Retrieve preview') ])
-			])
-		]);
-	},
-
-	handlePrimaryAction: function() {
-		const mode = document.getElementById('lpac-download-mode').value;
-
-		return mode === 'discovery'
-			? this.startDiscovery()
-			: this.showDownloadModal();
-	},
-
 	showDownloadModal: function() {
 		if (this.isBusy())
 			return;
-
-		this.syncVerificationRequired(true);
 
 		if (this.retryBlocked) {
 			ui.addNotification(null, E('p', {}, [ lpac.errorMessage({
@@ -1108,29 +813,6 @@ return view.extend({
 	},
 
 	startDownload: function(request) {
-		return this.startDownloadOperation(function() {
-			return lpac.downloadProfile(
-				request.mode,
-				request.activationCode,
-				request.smdp,
-				request.matchingId,
-				request.imei,
-				request.confirmationCode
-			);
-		}, null, request.mode === 'activation'
-			? activationServer(request.activationCode)
-			: request.smdp);
-	},
-
-	startDiscoveredDownload: function(entry, confirmationCode) {
-		return this.startDownloadOperation(function() {
-			return lpac.downloadDiscoveredProfile(entry.entry_id, confirmationCode);
-		}, this.clearDiscoveryResults.bind(this), entry.smdp);
-	},
-
-	startDownloadOperation: function(operation, startedCallback, smdp) {
-		this.syncVerificationRequired(true);
-
 		if (this.activeJob || this.downloadStarting || this.checkingCurrentJob ||
 		    this.qrDecoding || this.retryBlocked)
 			return;
@@ -1139,29 +821,33 @@ return view.extend({
 		this.pendingStartResult = null;
 		this.activeDecisionToken = null;
 		this.activePhase = null;
-		this.activeSmdp = smdp || null;
+		this.activeSmdp = request.mode === 'activation'
+			? activationServer(request.activationCode)
+			: request.smdp;
 		this.previewDecisionSent = false;
 		this.previewModalJob = null;
 		ui.hideModal();
-		this.setDownloadProgress(true, _('Starting the secure lpac preview session…'));
+		this.setDownloadProgress(true, _('Starting the protected lpac preview session…'));
 		this.updateControls();
 
-		return Promise.resolve().then(operation).then(function(result) {
-			if (this.attachRunningJob(result, jobOriginOwned)) {
-				if (startedCallback)
-					startedCallback();
+		return lpac.downloadProfile(
+			request.mode,
+			request.activationCode,
+			request.smdp,
+			request.matchingId,
+			request.imei,
+			request.confirmationCode
+		).then(function(result) {
+			if (this.attachRunningJob(result, jobOriginOwned))
 				return;
-			}
 
 			if (result?.error === 'busy') {
-				return this.runStatusCheck(function() {
-					return lpac.getDownloadStatus(0, '').then(function(current) {
-						if (!this.attachRunningJob(current, jobOriginExternal))
-							throw new Error(lpac.errorMessage(result));
-					}.bind(this), function() {
+				return lpac.getDownloadStatus(0, '').then(function(current) {
+					if (!this.attachRunningJob(current, jobOriginExternal))
 						throw new Error(lpac.errorMessage(result));
-					});
-				}.bind(this));
+				}.bind(this), function() {
+					throw new Error(lpac.errorMessage(result));
+				});
 			}
 
 			const recoverable = !result || result.error === 'transport_error' ||
@@ -1170,31 +856,27 @@ return view.extend({
 			if (!recoverable)
 				throw new Error(lpac.errorMessage(result));
 
-			/* The request may have reached rpcd; persist the block before probing. */
-			this.requireVerification();
 			this.pendingStartResult = result || {
 				success: false,
 				error: 'transport_error'
 			};
 
-			return this.runStatusCheck(function() {
-				return lpac.getDownloadStatus(0, '').then(function(current) {
-					if (this.attachRunningJob(current, jobOriginUncertain))
-						return;
+			return lpac.getDownloadStatus(0, '').then(function(current) {
+				if (this.attachRunningJob(current, jobOriginUncertain))
+					return;
 
-					if (isIdleDownloadStatus(current)) {
-						this.finishDownload({
-							success: false,
-							error: 'execution_failed',
-							reason: 'outcome_unknown'
-						});
-						return;
-					}
+				if (isIdleDownloadStatus(current)) {
+					this.finishDownload({
+						success: false,
+						error: 'execution_failed',
+						reason: 'outcome_unknown'
+					});
+					return;
+				}
 
-					this.recordStatusFailure();
-					this.setDownloadProgress(true,
-						_('The start response was lost. Checking whether lpac is still running…'));
-				}.bind(this));
+				this.recordStatusFailure();
+				this.setDownloadProgress(true,
+					_('The start response was lost. Checking whether lpac is still running…'));
 			}.bind(this));
 		}.bind(this)).catch(function(error) {
 			this.downloadStarting = false;
@@ -1226,8 +908,8 @@ return view.extend({
 			: jobOriginExternal);
 		const ownedOutcomeUnknown = origin === jobOriginOwned &&
 			(result?.reason === 'outcome_unknown' || result?.error === 'job_not_found');
-		const unknownOutcome = origin === jobOriginUncertain || ownedOutcomeUnknown;
-		const verificationRequired = this.retryBlocked || unknownOutcome;
+		const verificationRequired = this.retryBlocked ||
+			origin === jobOriginUncertain || ownedOutcomeUnknown;
 
 		this.activeJob = null;
 		this.activeJobOrigin = null;
@@ -1237,17 +919,14 @@ return view.extend({
 		this.downloadStarting = false;
 		this.checkingCurrentJob = false;
 		this.previewDecisionSent = false;
+
 		if (this.previewModalJob !== null)
 			ui.hideModal();
+
 		this.previewModalJob = null;
 		this.statusFailures = 0;
 		this.pendingStartResult = null;
-		if (unknownOutcome || (verificationRequired && this.verificationPending))
-			this.settleVerification();
-		else
-			this.syncVerificationRequired();
-
-		this.retryBlocked = verificationRequired || this.retryBlocked;
+		this.retryBlocked = verificationRequired;
 		this.setDownloadProgress(false);
 		this.setVerificationRequired(this.retryBlocked);
 
@@ -1293,20 +972,9 @@ return view.extend({
 	},
 
 	pollDownload: function() {
-		this.syncVerificationRequired(true);
-
-		if (this.statusCheckInFlight)
-			return this.statusCheckInFlight;
-
-		return this.runStatusCheck(this.pollDownloadOnce.bind(this));
-	},
-
-	pollDownloadOnce: function() {
 		if (this.checkingCurrentJob) {
 			return lpac.getDownloadStatus(0, '').then(function(current) {
-				if (this.attachRunningJob(current, this.verificationPending
-					? jobOriginUncertain
-					: jobOriginExternal))
+				if (this.attachRunningJob(current, jobOriginExternal))
 					return;
 
 				if (!isIdleDownloadStatus(current)) {
@@ -1316,10 +984,6 @@ return view.extend({
 
 				this.checkingCurrentJob = false;
 				this.statusFailures = 0;
-
-				if (this.verificationPending)
-					this.settleVerification();
-
 				this.setDownloadProgress(false);
 				this.updateControls();
 			}.bind(this)).catch(function() {
@@ -1352,7 +1016,8 @@ return view.extend({
 
 		const jobId = this.activeJob;
 
-		return lpac.getDownloadStatus(jobId, this.activeDecisionToken || '').then(function(result) {
+		return lpac.getDownloadStatus(jobId,
+			this.activeDecisionToken || '').then(function(result) {
 			if (result && result.success && result.data?.status === 'running' &&
 			    result.data?.job_id === jobId) {
 				this.statusFailures = 0;
@@ -1375,11 +1040,14 @@ return view.extend({
 				this.previewModalJob = null;
 				this.previewDecisionSent = true;
 
-				if (missingOrigin !== jobOriginExternal && !this.verificationPending)
-					this.requireVerification();
-
 				return lpac.getDownloadStatus(0, '').then(function(current) {
 					if (this.attachRunningJob(current, jobOriginExternal)) {
+						if (missingOrigin !== jobOriginExternal) {
+							this.retryBlocked = true;
+							this.setVerificationRequired(true);
+							this.updateControls();
+						}
+
 						return;
 					}
 
@@ -1405,34 +1073,15 @@ return view.extend({
 	},
 
 	render: function(initialStatus) {
-		this.syncVerificationRequired();
-
-		if (!this.attachRunningJob(initialStatus, this.verificationPending
-			? jobOriginUncertain
-			: jobOriginExternal) &&
+		if (!this.attachRunningJob(initialStatus, jobOriginExternal) &&
 		    !isIdleDownloadStatus(initialStatus)) {
 			this.checkingCurrentJob = true;
 			this.statusFailures = 1;
-		}
-		else if (isIdleDownloadStatus(initialStatus) && this.verificationPending) {
-			/* A pending marker survived navigation; verify only after known idle. */
-			this.settleVerification();
 		}
 
 		if (!this.pollRegistered) {
 			poll.add(this.pollDownload.bind(this), 2);
 			this.pollRegistered = true;
-		}
-
-		if (!this.verificationListenerRegistered &&
-		    typeof window.addEventListener === 'function') {
-			window.addEventListener('storage', function(event) {
-				if (!event || event.key === null ||
-				    (typeof event.key === 'string' &&
-				     event.key.startsWith(lpac.downloadVerificationStoragePrefix)))
-					this.syncVerificationRequired(true);
-			}.bind(this));
-			this.verificationListenerRegistered = true;
 		}
 
 		const controlsDisabled = isReadonlyView || this.isBusy() || null;
@@ -1445,8 +1094,7 @@ return view.extend({
 			E('option', { 'value': 'activation', 'selected': '' }, [
 				_('Activation code or QR')
 			]),
-			E('option', { 'value': 'manual' }, [ _('Manual parameters') ]),
-			E('option', { 'value': 'discovery' }, [ _('SM-DS discovery') ])
+			E('option', { 'value': 'manual' }, [ _('Manual parameters') ])
 		]);
 		const makeQRInput = function(id, capture) {
 			return E('input', {
@@ -1464,8 +1112,7 @@ return view.extend({
 		const qrFile = makeQRInput('lpac-qr-file');
 		const qrCamera = makeQRInput('lpac-qr-camera', 'environment');
 		const activationInput = textInput('lpac-activation-code', 'password',
-			'LPA:1$smdp.example.com$MATCHING-ID', maxActivationRawLength,
-			controlsDisabled,
+			'LPA:1$smdp.example.com$MATCHING-ID', 4096, controlsDisabled,
 			this.handleActivationInput.bind(this));
 
 		activationInput.setAttribute('aria-describedby', 'lpac-qr-status');
@@ -1485,16 +1132,15 @@ return view.extend({
 			}, [ label ]);
 		}.bind(this);
 		const hasActiveDownload = !!this.activeJob;
-		const hasProgress = hasActiveDownload || this.checkingCurrentJob ||
-			this.discovering;
+		const hasProgress = hasActiveDownload || this.checkingCurrentJob;
 
 		return E([
 			E('h2', {}, [ _('Download eSIM profile') ]),
 			E('div', { 'class': 'cbi-map-descr' }, [
-				_('Find and install profiles through SM-DS discovery, a complete LPA activation code, a locally decoded QR image, or manual lpac parameters. Every path pauses for a provider-metadata preview before installation.')
+				_('Use a complete LPA activation code, a locally decoded QR image, or manual lpac parameters. Every path pauses for provider-metadata review before installation.')
 			]),
-			E('div', { 'class': 'alert-message notice', 'role': 'note' }, [
-				_('Provider connections require a certificate chain and hostname accepted by OpenWrt\'s system CA bundle. A wrong router clock or missing CA store causes the operation to fail closed.')
+			E('div', { 'class': 'alert-message warning', 'role': 'note' }, [
+				_('Security warning: lpac does not currently verify the profile-download server\'s TLS certificate or hostname. Only continue with a trusted activation source and network.')
 			]),
 			E('div', {
 				'id': 'lpac-download-progress',
@@ -1506,12 +1152,10 @@ return view.extend({
 				E('span', { 'class': 'spinning' }),
 				' ',
 				E('span', { 'id': 'lpac-download-progress-text' }, [
-					this.discovering
-						? _('Contacting the SM-DS and checking for pending download orders…')
-						: this.checkingCurrentJob
+					this.checkingCurrentJob
 						? _('Unable to confirm whether a profile download is already running. Retrying automatically…')
 						: (hasActiveDownload
-							? this.runningJobMessage()
+							? _('Another profile download is running. Monitoring it before this form can be submitted.')
 							: '')
 				])
 			]),
@@ -1521,9 +1165,7 @@ return view.extend({
 				'role': 'alert',
 				'style': this.retryBlocked ? '' : 'display:none'
 			}, [
-				this.verificationStorageAvailable
-					? _('The previous download outcome is unknown. Open Profiles and Notifications before returning here to retry.')
-					: _('Browser site storage is unavailable. Downloads remain disabled because LuCI cannot safely retain verification across pages; enable storage, reload LuCI, and check Profiles and Notifications before retrying.')
+				_('The previous download outcome is unknown. Open Profiles and Notifications before returning here to retry.')
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, [ _('Download method') ]),
@@ -1573,24 +1215,6 @@ return view.extend({
 						_('Optional activation token passed to lpac with -m.'))
 				])
 			]),
-			E('div', { 'id': 'lpac-download-discovery-fields', 'style': 'display:none' }, [
-				E('div', { 'class': 'cbi-section' }, [
-					E('h3', {}, [ _('SM-DS discovery') ]),
-					formRow(_('SM-DS address'),
-						textInput('lpac-smds', 'text', 'lpa.ds.gsma.com', 255,
-							controlsDisabled, this.clearDiscoveryResults.bind(this)),
-						_('Optional. When empty, lpac uses the GSMA discovery service lpa.ds.gsma.com.')),
-					E('p', { 'class': 'cbi-value-description', 'role': 'note' }, [
-						_('Discovered EventIDs remain only in expiring backend memory. LuCI receives opaque entry identifiers and never stores those matching credentials in the browser.')
-					])
-				]),
-				E('div', {
-					'id': 'lpac-discovery-results',
-					'role': 'region',
-					'aria-live': 'polite',
-					'style': 'display:none'
-				})
-			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, [ _('Additional parameters') ]),
 				formRow(_('Confirmation code'),
@@ -1599,7 +1223,7 @@ return view.extend({
 					_('Provide this when the activation code or download order requires confirmation.')),
 				formRow(_('IMEI'),
 					textInput('lpac-imei', 'text', _('Optional'), 16,
-						controlsDisabled, this.clearDiscoveryResults.bind(this)),
+						controlsDisabled),
 					_('Optional 14- to 16-digit device identifier passed to lpac with -i.'))
 			]),
 			E('div', { 'class': 'cbi-page-actions' }, [
@@ -1615,8 +1239,8 @@ return view.extend({
 					'class': 'btn cbi-button cbi-button-positive important',
 					'disabled': controlsDisabled || this.qrDecoding ||
 						this.retryBlocked || null,
-					'click': ui.createHandlerFn(this, 'handlePrimaryAction')
-				}, [ _('Review profile') ])
+					'click': ui.createHandlerFn(this, 'showDownloadModal')
+				}, [ _('Retrieve profile preview') ])
 			])
 		]);
 	},

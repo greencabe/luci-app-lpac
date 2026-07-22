@@ -2,13 +2,15 @@
 
 ## Goal
 
-Finish the native LuCI application so every management operation it exposes is
-reliable. Downloads must support pasted activation codes, separate camera and
-file QR inputs, SM-DS discovery, provider metadata preview before installation,
-and direct review of discovered orders. Profiles must render bounded safe icons,
-and pending notifications must be processable with explicit partial/unknown
-outcome handling. The result must be suitable for review in `openwrt/luci` pull
-request #8836 once its lpac package dependency is available upstream.
+Prepare a deliberately staged native LuCI application based on
+`fix/profile-download-hardening-extra`. Downloads support pasted activation
+codes, manual parameters, and separate camera/file QR inputs. Pending provider
+notifications remain processable with explicit partial/unknown outcome
+handling. Every download pauses in the same live lpac session for an explicit
+provider-metadata decision before PrepareDownload. SM-DS profile discovery,
+direct discovered-order download, and profile icons are intentionally deferred.
+The bundled lpac package carries exactly nine patches: the original five plus
+`0030`, `0031`, `0050`, and `0060`.
 
 ## Sources of truth
 
@@ -42,31 +44,30 @@ request #8836 once its lpac package dependency is available upstream.
   form and require Profiles/Notifications verification before any retry.
 - Bound raw input before normalization and test real supervisor, process-group,
   signal, and inherited-lock behavior in CI without contacting an eSIM provider.
-- Preserve the SM-DS EventID needed for a discovered order only in bounded,
-  expiring backend memory. Give the browser an opaque entry identifier and the
-  validated display server, never the EventID or discovery IMEI.
-- Require every download path to enter the same live lpac preview session and
-  receive an explicit one-shot decision before PrepareDownload. Missing metadata
-  must still stop for confirmation; a lost owner response must never authorize
+- Keep SM-DS discovery, direct discovered-order download, and profile icons
+  absent from the staged frontend, backend, ACLs, and package claims.
+- Require every download path to enter one live lpac preview session and receive
+  an explicit one-shot decision before PrepareDownload. Missing metadata must
+  still stop for confirmation; a lost owner response must never authorize
   installation.
-- Accept profile icons only as canonical, bounded PNG/JPEG data with matching
-  magic and browser-side dimension checks. Never render SVG, HTML, or an external
-  icon URL supplied by a profile.
 - Process provider notifications one sequence at a time, including sequence zero.
   Stop a batch on the first failure and distinguish retrieval failure, unknown
   provider outcome, and successful delivery followed by local removal failure.
-- Require the bundled lpac transport to verify the provider certificate chain
-  and hostname against OpenWrt's CA bundle. Do not offer an insecure fallback.
-- Bound provider response allocation with checked arithmetic before JSON or
-  base64 processing can amplify memory use on a constrained router.
+- Clearly disclose that bundled lpac v2.3.0 inherits disabled curl peer and
+  hostname verification. Do not claim that this staged branch fixes TLS or
+  provider-response allocation bounds.
 - Treat the default SM-DP+ address as persistent eUICC state, not a LuCI/UCI
   setting. Expose its nonempty typed update only in Overview, require a second
   old/new confirmation, and claim success only after exact `get_info` readback.
 - Inventory lpac applets explicitly. Destructive chip purge and raw notification
   dump/replay are intentionally out of scope for a general LuCI management UI;
   do not expose them merely to claim every diagnostic applet is present.
-- Add regression coverage for every bug fixed and run LuCI lint, ucode tests,
-  package builds, and proportionate router validation.
+- Keep only patches `0001`, `0002`, `0010`, `0015`, `0020`, `0030`, `0031`,
+  `0050`, and `0060`; defer `0040`, `0041`, `0070`, and `0071` and all tests
+  that depend solely on them.
+- Add regression coverage for every retained behavior and run LuCI lint, ucode
+  tests, host patch-contract tests, package builds, and proportionate router
+  validation.
 
 ## Router safety boundary
 

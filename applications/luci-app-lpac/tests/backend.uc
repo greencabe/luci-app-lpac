@@ -373,12 +373,9 @@ global.TEST_EXEC_REPLY = {
 result = invoke('list_profiles');
 check(result.success && length(result.data) == 2,
 	'invalid profile records are discarded');
-same(result.data[0].icon, { mime: 'image/png', data: png_icon_data },
-	'canonical PNG profile icons are returned as typed inert data');
-same(result.data[1].icon, { mime: 'image/jpeg', data: jpeg_icon_data },
-	'canonical JPEG profile icons are returned as typed inert data');
-check(!('iconType' in result.data[0]),
-	'raw icon type values are not forwarded alongside normalized icons');
+check(!('icon' in result.data[0]) && !('iconType' in result.data[0]) &&
+	!('icon' in result.data[1]) && !('iconType' in result.data[1]),
+	'profile icon content and metadata are never returned to LuCI');
 
 reset();
 global.TEST_EXEC_REPLY = {
@@ -395,60 +392,6 @@ check(result.success && length(result.data) == 1 &&
 	'control-suffixed ICCID and AID profile records are discarded');
 
 reset();
-const invalid_icon_profiles = [];
-const invalid_icons = [
-	{ iconType: 'png', icon: jpeg_icon_data },
-	{ iconType: 'jpeg', icon: png_icon_data },
-	{ iconType: 'svg', icon: b64enc('<svg onload="alert(1)"/>') },
-	{ iconType: 'png', icon: 'data:image/png;base64,' + png_icon_data },
-	{ iconType: 'png', icon: png_icon_data + '\n' },
-	{ iconType: 'png', icon: substr(png_icon_data, 0,
-		length(png_icon_data) - 2) + 'p=' },
-	{ iconType: 'png', icon: b64enc(chr(137, 80, 78, 71, 13, 10, 26, 10) +
-		make_text('A', 1017)) },
-	{ iconType: 'PNG', icon: png_icon_data }
-];
-
-for (let i = 0; i < length(invalid_icons); i++) {
-	const profile = invalid_icons[i];
-
-	profile.iccid = sprintf('89%017d', i);
-	push(invalid_icon_profiles, profile);
-}
-
-global.TEST_EXEC_REPLY = { code: 0, stdout: terminal(invalid_icon_profiles) };
-result = invoke('list_profiles');
-check(result.success && length(result.data) == length(invalid_icons),
-	'bad icon data does not discard otherwise valid profile records');
-for (let profile in result.data)
-	check(!('icon' in profile),
-		'wrong MIME, magic, base64, size, or type is never exposed as an icon');
-
-reset();
-const icon_budget_profiles = [];
-const maximum_png = b64enc(chr(137, 80, 78, 71, 13, 10, 26, 10) +
-	make_text('A', 1016));
-
-for (let i = 0; i < 33; i++)
-	push(icon_budget_profiles, {
-		iccid: sprintf('88%017d', i),
-		iconType: 'png',
-		icon: maximum_png
-	});
-
-global.TEST_EXEC_REPLY = { code: 0, stdout: terminal(icon_budget_profiles) };
-result = invoke('list_profiles');
-let returned_icons = 0;
-
-for (let profile in result.data)
-	if ('icon' in profile)
-		returned_icons++;
-
-check(result.success && returned_icons == 32 &&
-	!('icon' in result.data[32]),
-	'profile-list icon data is capped at a 32-KiB decoded aggregate budget');
-
-reset();
 global.TEST_EXEC_REPLY = {
 	code: 0,
 	stdout: terminal([
@@ -460,200 +403,6 @@ result = invoke('list_notifications');
 check(result.success && length(result.data) == 2 &&
 	result.data[0].seqNumber == 0 && result.data[1].seqNumber == 4294967295,
 	'notification list preserves the full uint32 sequence range');
-
-reset();
-const discovery_secret = 'secret-event-id-never-returned';
-global.TEST_EXEC_REPLY = {
-	code: 0,
-	stdout: terminal([
-		{ eventId: discovery_secret, rspServerAddress: 'rsp.example.com' },
-		{ eventId: discovery_secret, rspServerAddress: 'rsp.example.com' },
-		{ eventId: 'second-secret', rspServerAddress: 'rsp2.example.com:443' }
-	])
-};
-result = invoke('discover_profiles', { smds: '', imei: '' });
-check(result.success && length(result.data) == 2 &&
-	result.data[0].smdp == 'rsp.example.com' &&
-	result.data[1].smdp == 'rsp2.example.com:443',
-	'discovery returns deduplicated, validated SM-DP+ display addresses');
-check(match(result.data[0].entry_id, /^[A-Za-z0-9_-]{32}$/) !== null &&
-	match(result.data[1].entry_id, /^[A-Za-z0-9_-]{32}$/) !== null &&
-	result.data[0].entry_id != result.data[1].entry_id &&
-	index(sprintf('%J', result), discovery_secret) < 0 &&
-	index(sprintf('%J', result), 'second-secret') < 0,
-	'discovery event IDs are replaced with distinct opaque in-memory tokens');
-same(global.TEST_LAST_CALL.request.params, [
-	'-n', '/var/run/luci-lpac.lock', '/usr/bin/lpac',
-	'profile', 'discovery', '-j'
-], 'default discovery uses detailed JSON without injecting a default SM-DS flag');
-check(global.TEST_RANDOM_OPEN_COUNT == 2 &&
-	global.TEST_RANDOM_CLOSE_COUNT == 2,
-	'each unique discovery result receives fresh randomness from a closed handle');
-const first_discovery_timer = global.TEST_TIMERS[0];
-check(length(global.TEST_TIMERS) == 1 &&
-	first_discovery_timer.timeout == 300000 &&
-	length(first_discovery_timer.set_calls) == 1,
-	'discovery secrets receive one real five-minute expiry watchdog');
-
-result = invoke('discover_profiles', { smds: '', imei: '' });
-const expiring_entry_id = result.data[0].entry_id;
-const replacement_discovery_timer = global.TEST_TIMERS[1];
-check(result.success && first_discovery_timer.cancelled &&
-	length(global.TEST_TIMERS) == 2 &&
-	replacement_discovery_timer.timeout == 300000,
-	'a replacement discovery cancels the previous secret-expiry watchdog');
-result = invoke('download_discovered_profile', {
-	entry_id: expiring_entry_id + '\n', confirmation_code: ''
-});
-check(!result.success && result.error == 'invalid_argument',
-	'a control-suffixed discovery entry token is rejected at the RPC boundary');
-replacement_discovery_timer.callback();
-result = invoke('download_discovered_profile', {
-	entry_id: expiring_entry_id, confirmation_code: ''
-});
-check(!result.success && result.error == 'entry_unavailable' &&
-	global.TEST_LAST_PROCESS === null,
-	'the five-minute watchdog hard-deletes event IDs and IMEI without lazy access');
-
-reset();
-global.TEST_EXEC_REPLY = {
-	code: 0,
-	stdout: terminal([
-		{ eventId: 'ipv6-event', rspServerAddress: '[2001:db8::2]:8443' }
-	])
-};
-result = invoke('discover_profiles', {
-	smds: '[2001:db8::1]:443',
-	imei: '1234567890123456'
-});
-check(result.success && index(sprintf('%J', result), '1234567890123456') < 0,
-	'discovery accepts but never returns the validated IMEI retained for preview');
-same(global.TEST_LAST_CALL.request.params, [
-	'-n', '/var/run/luci-lpac.lock', '/usr/bin/lpac',
-	'profile', 'discovery', '-j', '-s', '[2001:db8::1]:443',
-	'-i', '1234567890123456'
-], 'SM-DS and IMEI remain separate fixed discovery argv elements');
-
-reset();
-global.TEST_EXEC_REPLY = { code: 0, stdout: terminal([]) };
-result = invoke('discover_profiles', { smds: 'lpa.ds.gsma.com', imei: '' });
-check(result.success && length(result.data) == 0,
-	'an empty detailed discovery array is a valid no-results response');
-
-reset();
-const bad_discovery_arguments = [
-	{ smds: '-a', imei: '' },
-	{ smds: 'smds.example.com/path', imei: '' },
-	{ smds: 'smds.example.com\n-i', imei: '' },
-	{ smds: 'smds_example.com', imei: '' },
-	{ smds: '-smds.example.com', imei: '' },
-	{ smds: 'smds.example.com:0', imei: '' },
-	{ smds: 'smds.example.com:65536', imei: '' },
-	{ smds: '999.999.999.999', imei: '' },
-	{ smds: '[2001:::1]', imei: '' },
-	{ smds: make_text('a', 64) + '.example.com', imei: '' },
-	{ smds: [ 'smds.example.com' ], imei: '' },
-	{ smds: 'smds.example.com', imei: '1234567890123' },
-	{ smds: 'smds.example.com', imei: '12345678901234567' },
-	{ smds: 'smds.example.com', imei: '12345678901234\n' },
-	{ smds: 'smds.example.com', imei: 12345678901234 }
-];
-
-for (let args in bad_discovery_arguments) {
-	result = invoke('discover_profiles', args);
-	check(!result.success && result.error == 'invalid_argument' &&
-		global.TEST_LAST_CALL === null,
-		'malformed discovery host, port, IMEI, or argv injection is rejected');
-}
-
-const too_many_discovery_entries = [];
-
-for (let i = 0; i < 65; i++)
-	push(too_many_discovery_entries, {
-		eventId: `event-${i}`,
-		rspServerAddress: 'rsp.example.com'
-	});
-
-const malformed_discovery_payloads = [
-	{},
-	[ 'rsp.example.com' ],
-	[ null ],
-	[ {} ],
-	[ { eventId: '', rspServerAddress: 'rsp.example.com' } ],
-	[ { eventId: 123, rspServerAddress: 'rsp.example.com' } ],
-	[ { eventId: 'event', rspServerAddress: null } ],
-	[ { eventId: 'bad\nevent', rspServerAddress: 'rsp.example.com' } ],
-	[ { eventId: make_text('E', 4097), rspServerAddress: 'rsp.example.com' } ],
-	[ { eventId: 'event', rspServerAddress: 'https://rsp.example.com/path' } ],
-	[ { eventId: 'event', rspServerAddress: 'rsp_example.com' } ],
-	[ { eventId: 'event', rspServerAddress: '999.999.999.999' } ],
-	[ { eventId: 'event', rspServerAddress: 'rsp.example.com\nsecond' } ],
-	too_many_discovery_entries
-];
-
-for (let payload in malformed_discovery_payloads) {
-	reset();
-	global.TEST_EXEC_REPLY = { code: 0, stdout: terminal(payload) };
-	result = invoke('discover_profiles', { smds: '', imei: '' });
-	check(!result.success && result.error == 'invalid_response' &&
-		index(sprintf('%J', result), 'event') < 0,
-		'malformed, legacy, or oversized detailed discovery payload is rejected');
-}
-
-reset();
-global.TEST_RANDOM_OPEN_FAIL = true;
-global.TEST_EXEC_REPLY = {
-	code: 0,
-	stdout: terminal([
-		{ eventId: discovery_secret, rspServerAddress: 'rsp.example.com' }
-	])
-};
-result = invoke('discover_profiles', { smds: '', imei: '' });
-check(!result.success && result.error == 'execution_failed' &&
-	index(sprintf('%J', result), discovery_secret) < 0 &&
-	global.TEST_RANDOM_OPEN_COUNT == 8,
-	'discovery fails closed without exposing secrets when entropy is unavailable');
-
-reset();
-global.TEST_TIMER_NULL_AT = 1;
-global.TEST_EXEC_REPLY = {
-	code: 0,
-	stdout: terminal([ {
-		eventId: discovery_secret,
-		rspServerAddress: 'rsp.example.com'
-	} ])
-};
-result = invoke('discover_profiles', { smds: '', imei: '' });
-check(!result.success && result.error == 'execution_failed' &&
-	!('data' in result) && index(sprintf('%J', result), discovery_secret) < 0,
-	'discovery returns no token or secret when expiry-timer creation fails');
-const failed_timer_entry_id = replace(replace(
-	b64enc(sprintf('%024d', 1)), /\+/g, '-'), /\//g, '_');
-result = invoke('download_discovered_profile', {
-	entry_id: failed_timer_entry_id, confirmation_code: ''
-});
-check(!result.success && result.error == 'entry_unavailable',
-	'timer-creation failure wipes the generated discovery secret');
-
-reset();
-global.TEST_TIMER_SET_FAIL = true;
-global.TEST_EXEC_REPLY = {
-	code: 0,
-	stdout: terminal([ {
-		eventId: discovery_secret,
-		rspServerAddress: 'rsp.example.com'
-	} ])
-};
-result = invoke('discover_profiles', { smds: '', imei: '' });
-check(!result.success && result.error == 'execution_failed' &&
-	!('data' in result) && length(global.TEST_TIMERS) == 1 &&
-	global.TEST_TIMERS[0].cancelled,
-	'discovery fails closed and cancels a watchdog that cannot be armed');
-result = invoke('download_discovered_profile', {
-	entry_id: failed_timer_entry_id, confirmation_code: ''
-});
-check(!result.success && result.error == 'entry_unavailable',
-	'timer-set failure wipes event IDs instead of retaining unbounded secrets');
 
 reset();
 global.TEST_EXEC_REPLY = { code: 0, stdout: terminal(null) };
@@ -1064,9 +813,8 @@ emit_download_output(substr(preview_event, 9));
 result = owner_status(activation_job_id, activation_token);
 check(result.success && result.data.phase == 'awaiting_confirmation' &&
 	result.data.preview.serviceProviderName == 'Preview Carrier' &&
-	result.data.preview.icon.mime == 'image/png' &&
-	result.data.preview.icon.data == preview_png,
-	'fragmented metadata and prompt NDJSON yield a strictly normalized preview');
+	!('icon' in result.data.preview) && !('iconType' in result.data.preview),
+	'fragmented metadata yields a normalized icon-free preview');
 check(global.TEST_TIMERS[1].timeout == 120000 &&
 	global.TEST_TIMERS[0].timeout == 130000,
 	'prompt grants a fresh full preview window plus cancellation grace');
@@ -1429,78 +1177,6 @@ global.TEST_TIMERS[2].callback();
 result = invoke('get_download_status', { job_id: rearm_failure_job });
 check(!result.success && result.reason == 'preview_protocol_error',
 	'drain retry observes real EOF before finalizing a watcher failure');
-
-reset();
-const discovered_event_secret = 'DISCOVERY-EVENT-SECRET';
-const discovered_imei = '1234567890123456';
-global.TEST_EXEC_REPLY = {
-	code: 0,
-	stdout: terminal([ {
-		eventId: discovered_event_secret,
-		rspServerAddress: 'discovered.example.com'
-	} ])
-};
-result = invoke('discover_profiles', {
-	smds: 'lpa.ds.gsma.com', imei: discovered_imei
-});
-const discovered_entry_id = result.data[0].entry_id;
-const discovered_expiry_timer = global.TEST_TIMERS[0];
-check(result.success && index(sprintf('%J', result), discovered_event_secret) < 0 &&
-	index(sprintf('%J', result), discovered_imei) < 0,
-	'discovery exposes only an opaque entry ID and safe server display value');
-
-reset();
-global.TEST_PROCESS_NULL = true;
-result = invoke('download_discovered_profile', {
-	entry_id: discovered_entry_id,
-	confirmation_code: 'discovery-confirmation-secret'
-});
-check(!result.success && result.error == 'execution_failed' &&
-	index(sprintf('%J', result), discovered_event_secret) < 0,
-	'failed discovered-profile spawn returns no hidden event or IMEI');
-check(!discovered_expiry_timer.cancelled &&
-	length(discovered_expiry_timer.set_calls) == 1 &&
-	discovered_expiry_timer.timeout == 300000,
-	'a failed spawn restores the claim without extending its original expiry');
-
-reset();
-result = invoke('download_discovered_profile', {
-	entry_id: discovered_entry_id,
-	confirmation_code: 'discovery-confirmation-secret'
-});
-check(result.success,
-	'failed spawn restores the same claimed discovery entry with original expiry');
-check(discovered_expiry_timer.cancelled,
-	'consuming the final discovery entry cancels its now-unneeded expiry timer');
-const discovered_job_id = result.data.job_id;
-const discovered_token = result.data.decision_token;
-const discovered_argv = global.TEST_LAST_PROCESS.arguments;
-const discovered_lpac_index = index(discovered_argv, '/usr/bin/lpac');
-same(slice(discovered_argv, discovered_lpac_index), [
-	'/usr/bin/lpac', 'profile', 'download', '-p',
-	'-s', 'discovered.example.com', '-m', discovered_event_secret,
-	'-i', discovered_imei, '-c', 'discovery-confirmation-secret'
-], 'discovered download reuses hidden event ID, server, and original IMEI as argv');
-check(index(sprintf('%J', result), discovered_event_secret) < 0 &&
-	index(sprintf('%J', result), discovered_imei) < 0,
-	'discovered start response contains only job ownership state');
-emit_download_output(download_progress('preview', 'y/n'));
-invoke('respond_download_preview', {
-	job_id: discovered_job_id,
-	decision_token: discovered_token,
-	accept: false
-});
-emit_download_output(terminal('', -1, 'cancelled'));
-global.TEST_LAST_PROCESS.output(DOWNLOAD_EXIT_FAILED);
-end_download_output();
-
-reset();
-result = invoke('download_discovered_profile', {
-	entry_id: discovered_entry_id,
-	confirmation_code: ''
-});
-check(!result.success && result.error == 'entry_unavailable',
-	'successfully spawned discovered entry is permanently consumed');
 
 reset();
 result = invoke('get_download_status', { job_id: 2147483647 });

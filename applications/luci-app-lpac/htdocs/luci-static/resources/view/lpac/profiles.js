@@ -39,35 +39,6 @@ function profileField(label, value) {
 	]);
 }
 
-function profileIdentity(profile, label) {
-	const uri = lpac.profileIconUri(profile.icon);
-	const fallback = E('span', {
-		'class': 'lpac-profile-icon lpac-profile-icon-fallback',
-		'aria-hidden': 'true',
-		'style': uri ? 'display:none' : ''
-	});
-	const children = [];
-
-	if (uri) {
-		children.push(E('img', {
-			'class': 'lpac-profile-icon',
-			'src': uri,
-			'alt': '',
-			'width': 40,
-			'height': 40,
-			'loading': 'lazy',
-			'error': function(event) {
-				event.currentTarget.style.display = 'none';
-				fallback.style.display = '';
-			}
-		}));
-	}
-
-	children.push(fallback, E('span', {}, [ label ]));
-
-	return E('span', { 'class': 'lpac-profile-identity' }, children);
-}
-
 return view.extend({
 	load: function() {
 		return L.resolveDefault(lpac.listProfiles(), null);
@@ -293,7 +264,7 @@ return view.extend({
 				]);
 
 				rows.push([
-					[ name, profileField(_('Profile'), profileIdentity(profile, name)) ],
+					[ name, profileField(_('Profile'), name) ],
 					[ provider, profileField(_('Provider'), provider) ],
 					[ iccid, profileField(_('ICCID'), iccid) ],
 					[ state, profileField(_('State'), profileStateIndicator(state)) ],
@@ -307,9 +278,6 @@ return view.extend({
 				? _('No eSIM profiles found.')
 				: _('Profile data is unavailable.')
 		]));
-
-		if (result?.success === true)
-			lpac.markDownloadVerification('profiles');
 
 		return E([
 			E('link', {

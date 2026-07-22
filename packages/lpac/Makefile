@@ -25,7 +25,6 @@ define Package/lpac
   CATEGORY:=Utilities
   TITLE:=eUICC eSIM LPA written in C (compatibility build)
   DEPENDS:= \
-    +ca-bundle \
     +libcurl \
     +LPAC_WITH_PCSC:libpcsclite \
     +LPAC_WITH_PCSC:pcscd \
@@ -37,8 +36,8 @@ endef
 define Package/lpac/description
   lpac is an eUICC eSIM LPA manager written in C. This downstream
   compatibility build uses lpac v2.3.0 with the upstream environment and
-  version fixes, safe network defaults, detailed SM-DS discovery, and selected
-  fixes through lpac pull request 444.
+  version fixes, strict notification sequence handling, and selected fixes
+  through lpac pull request 444.
 endef
 
 define Package/lpac/config

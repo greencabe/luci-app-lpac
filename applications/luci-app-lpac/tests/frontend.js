@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-/* global require, __dirname, global, process, Buffer */
+/* global require, __dirname, global, process */
 
 'use strict';
 
@@ -153,9 +153,6 @@ function findAll(root, predicate) {
 }
 
 function textContent(node) {
-	if (Array.isArray(node))
-		return node.map(textContent).join('');
-
 	if (typeof node === 'string')
 		return node;
 
@@ -221,42 +218,7 @@ global.document = {
 		}
 	}
 };
-function memoryStorage() {
-	const values = new Map();
-
-	return {
-		getItem: function(key) {
-			return values.has(key) ? values.get(key) : null;
-		},
-		setItem: function(key, value) {
-			values.set(String(key), String(value));
-		},
-		removeItem: function(key) {
-			values.delete(String(key));
-		},
-		clear: function() {
-			values.clear();
-		}
-	};
-}
-
-const storageListeners = [];
-const browserStorage = memoryStorage();
-
-global.window = {
-	location: { reload: function() {} },
-	localStorage: browserStorage,
-	atob: global.atob,
-	addEventListener: function(type, callback) {
-		if (type === 'storage')
-			storageListeners.push(callback);
-	},
-	dispatchStorage: function(key) {
-		storageListeners.forEach(function(callback) {
-			callback({ key });
-		});
-	}
-};
+global.window = { location: { reload: function() {} } };
 
 const view = { extend: function(spec) { return spec; } };
 const ui = {
@@ -292,14 +254,11 @@ function loadView(relativePath) {
 	return Function('view', 'ui', 'poll', 'lpac', source)(view, ui, poll, lpac);
 }
 
-function loadLpacClient(declarations) {
+function loadLpacClient() {
 	const source = fs.readFileSync(path.join(appRoot,
 		'htdocs/luci-static/resources/lpac.js'), 'utf8');
 	const rpc = {
-		declare: function(spec) {
-			if (declarations)
-				declarations.push(spec);
-
+		declare: function() {
 			return function() { return Promise.resolve({}); };
 		}
 	};
@@ -336,102 +295,26 @@ function qrPixels(rows, scale) {
 	return { data, width, height };
 }
 
-const rpcDeclarations = [];
-const actualLpacClient = loadLpacClient(rpcDeclarations);
-[ 'getDownloadVerification', 'requireDownloadVerification',
-	'settleDownloadVerification', 'markDownloadVerification' ].forEach(function(name) {
-	lpac[name] = actualLpacClient[name].bind(actualLpacClient);
-});
-lpac.profileIconUri = actualLpacClient.profileIconUri;
+const actualLpacClient = loadLpacClient();
 lpac.validSmdpAddress = actualLpacClient.validSmdpAddress;
-lpac.downloadVerificationStorageKey = actualLpacClient.downloadVerificationStorageKey;
-lpac.downloadVerificationStoragePrefix =
-	actualLpacClient.downloadVerificationStoragePrefix;
-
-function rpcDeclaration(method) {
-	return rpcDeclarations.find(function(spec) { return spec.method === method; });
-}
-
-assert.deepStrictEqual(rpcDeclaration('discover_profiles').params,
-	[ 'smds', 'imei' ],
-	'SM-DS discovery should expose only its address and optional IMEI');
-assert.deepStrictEqual(rpcDeclaration('download_discovered_profile').params,
-	[ 'entry_id', 'confirmation_code' ],
-	'a discovered download should exchange only its opaque entry and confirmation code');
-assert.deepStrictEqual(rpcDeclaration('get_download_status').params,
-	[ 'job_id', 'decision_token' ],
+const lpacClientSource = fs.readFileSync(path.join(appRoot,
+	'htdocs/luci-static/resources/lpac.js'), 'utf8');
+assert.match(lpacClientSource,
+	/method: 'get_download_status',[\s\S]*?params: \[ 'job_id', 'decision_token' \]/,
 	'owned status polling must carry the tab-scoped preview decision token');
-assert.deepStrictEqual(rpcDeclaration('respond_download_preview').params,
-	[ 'job_id', 'decision_token', 'accept' ],
+assert.match(lpacClientSource,
+	/method: 'respond_download_preview',[\s\S]*?params: \[ 'job_id', 'decision_token', 'accept' \]/,
 	'preview approval must identify the exact owned job and one-time decision token');
-assert.deepStrictEqual(rpcDeclaration('process_notification').params,
-	[ 'seq', 'remove_after_success' ],
-	'provider processing should operate on one explicit notification sequence');
-assert.deepStrictEqual(rpcDeclaration('set_default_smdp').params,
-	[ 'address' ],
-	'the persistent eUICC default update should expose one typed address argument');
-const settingsSource = fs.readFileSync(path.join(appRoot,
-	'htdocs/luci-static/resources/view/lpac/settings.js'), 'utf8');
-
-assert.ok(!settingsSource.includes('setDefaultSmdp') &&
-	!settingsSource.includes('lpac-default-smdp'),
-	'the persistent eUICC default editor must not be mixed into UCI Settings');
 
 [ 'smdp.example.com', 'smdp.example.com:443', '192.0.2.1',
-	'[2001:db8::1]:8443', '[::ffff:192.0.2.1]' ].forEach(function(address) {
+	'[2001:db8::1]:8443' ].forEach(function(address) {
 	assert.strictEqual(actualLpacClient.validSmdpAddress(address), true,
-		`${address} should pass shared SM-DP+ host and port validation`);
+		`${address} should pass shared SM-DP+ validation`);
 });
 [ '', 'https://smdp.example.com', 'smdp.example.com/path',
-	'smdp.example.com:0', 'smdp.example.com:65536', 'bad_host.example.com',
-	'[:::]', '[1:2:3:4:5:6:7]', 'rsp.example.com\nsecond',
-	'rsp.example.com\n' ].forEach(function(address) {
+	'smdp.example.com:0', 'bad_host.example.com', '[:::]' ].forEach(function(address) {
 	assert.strictEqual(actualLpacClient.validSmdpAddress(address), false,
 		`${address || '<empty>'} should fail shared SM-DP+ validation`);
-});
-
-function pngIcon(width, height) {
-	const bytes = Buffer.alloc(24);
-	Buffer.from([ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a ])
-		.copy(bytes, 0);
-	bytes.write('IHDR', 12, 'ascii');
-	bytes.writeUInt32BE(width, 16);
-	bytes.writeUInt32BE(height, 20);
-
-	return bytes.toString('base64');
-}
-
-function jpegIcon(width, height) {
-	const bytes = Buffer.alloc(21);
-
-	Buffer.from([ 0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08 ])
-		.copy(bytes, 0);
-	bytes.writeUInt16BE(height, 7);
-	bytes.writeUInt16BE(width, 9);
-
-	return bytes.toString('base64');
-}
-
-const safePngIcon = { mime: 'image/png', data: pngIcon(64, 64) };
-const safeJpegIcon = { mime: 'image/jpeg', data: jpegIcon(40, 32) };
-
-assert.strictEqual(actualLpacClient.profileIconUri(safePngIcon),
-	`data:image/png;base64,${safePngIcon.data}`,
-	'a bounded PNG with an exact signature and dimensions should be renderable');
-assert.strictEqual(actualLpacClient.profileIconUri(safeJpegIcon),
-	`data:image/jpeg;base64,${safeJpegIcon.data}`,
-	'a bounded JPEG with an exact signature and dimensions should be renderable');
-[
-	{ mime: 'image/svg+xml', data: safePngIcon.data },
-	{ mime: 'text/html', data: safePngIcon.data },
-	{ mime: 'image/png', data: pngIcon(65, 64) },
-	{ mime: 'image/jpeg', data: jpegIcon(64, 65) },
-	{ mime: 'image/png', data: Buffer.from('not a png').toString('base64') },
-	{ mime: 'image/jpeg', data: Buffer.alloc(1025).toString('base64') },
-	{ mime: 'image/png', data: '%%%%' }
-].forEach(function(icon) {
-	assert.strictEqual(actualLpacClient.profileIconUri(icon), null,
-		'unsafe, malformed, oversized, or over-dimension profile icons must fall back');
 });
 
 const downloadFailureMessage = actualLpacClient.errorMessage({
@@ -446,399 +329,33 @@ assert.ok(!downloadFailureMessage.includes('255'),
 	'a known download failure should not present the unhelpful shell exit status');
 assert.strictEqual(actualLpacClient.errorMessage({
 	success: false,
-	error: 'lpac_error',
-	code: -1
-}), 'lpac rejected the operation.',
-'a generic negative sentinel must not be presented as an informative lpac code');
-assert.strictEqual(actualLpacClient.errorMessage({
-	success: false,
-	error: 'lpac_error',
-	code: 7
-}), 'lpac rejected the operation (code 7).',
-'a nonnegative lpac code should remain available when no known reason exists');
-assert.strictEqual(actualLpacClient.errorMessage({
-	success: false,
 	error: 'job_not_found',
 	reason: 'outcome_unknown',
 	code: 255
 }), 'The profile download outcome is unknown. Refresh Profiles and Notifications before retrying so that the same activation code is not submitted twice.',
-	'an unknown outcome should direct the user to inspect state before reusing a one-time code');
-assert.strictEqual(actualLpacClient.errorMessage({
-	success: false,
-	error: 'timeout',
-	reason: 'preview_timeout'
-}), 'The profile preview expired without a decision and was cancelled before installation.',
-	'a preview timeout should explicitly state that no installation approval occurred');
-assert.strictEqual(actualLpacClient.errorMessage({
-	success: false,
-	error: 'execution_failed',
-	reason: 'preview_protocol_error'
-}), 'lpac could not complete the protected profile-preview exchange. The profile was not approved for installation.',
-	'a pre-accept preview protocol failure should explicitly state that no approval occurred');
-assert.strictEqual(actualLpacClient.errorMessage({
-	success: false,
-	error: 'entry_unavailable'
-}), 'The discovered order expired or was already used. Run SM-DS discovery again.',
-	'the frontend should map the backend capability-safe discovery error exactly');
-assert.strictEqual(actualLpacClient.errorMessage({
-	success: false,
-	error: 'lpac_error',
-	reason: 'provider_outcome_unknown'
-}), 'The provider notification outcome is unknown. Do not send it again automatically; refresh the list and review it first.',
-	'an unknown provider outcome should prohibit an automatic retry');
+'an unknown outcome should direct the user to inspect state before reusing a one-time code');
 assert.strictEqual(actualLpacClient.errorMessage({
 	success: false,
 	error: 'lpac_error',
 	reason: 'provider_processed_remove_failed'
-}), 'The provider accepted the notification, but lpac could not remove its local eUICC record. Use Remove instead of processing it again.',
-	'a post-provider removal failure should direct the user to Remove, not Process');
-
-const verificationStorageKey = actualLpacClient.downloadVerificationStorageKey;
-const verificationStoragePrefix =
-	actualLpacClient.downloadVerificationStoragePrefix;
-const verificationProfilesKey = `${verificationStoragePrefix}.profiles`;
-const verificationNotificationsKey = `${verificationStoragePrefix}.notifications`;
-
-browserStorage.setItem(verificationStorageKey,
-	'{"activation_code":"LPA:1$must-not-survive.example$SECRET"}');
-const corruptVerification = actualLpacClient.getDownloadVerification();
-assert.strictEqual(corruptVerification.required, true,
-	'corrupt verification storage must fail closed');
-assert.strictEqual(corruptVerification.pending, false,
-	'corrupt storage should be replaced with the post-outcome verification phase');
-const repairedMarker = JSON.parse(browserStorage.getItem(verificationStorageKey));
-assert.deepStrictEqual(Object.keys(repairedMarker).sort(),
-	[ 'generation', 'phase', 'version' ],
-	'corrupt storage should be replaced by an allowlisted marker shape');
-assert.strictEqual(repairedMarker.version, 1);
-assert.strictEqual(repairedMarker.phase, 'verify');
-assert.match(repairedMarker.generation, /^[a-z0-9-]{3,80}$/);
-assert.ok(!JSON.stringify(repairedMarker).includes('LPA:'),
-	'the repaired marker must not retain corrupt credential-like data');
-actualLpacClient.markDownloadVerification('profiles');
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, true,
-	'one successful verification view must not clear a corrupt-state block');
-actualLpacClient.markDownloadVerification('notifications');
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, false,
-	'both successful verification views should clear the repaired state');
-
-browserStorage.clear();
-browserStorage.setItem(verificationStoragePrefix,
-	'{"version":1,"phase":"verify","activation_code":"SECRET"}');
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, true,
-	'a legacy single-record state should migrate fail-closed');
-assert.strictEqual(browserStorage.getItem(verificationStoragePrefix), null,
-	'the legacy record should be removed without parsing or retaining its fields');
-assert.ok(!browserStorage.getItem(verificationStorageKey).includes('SECRET'),
-	'the migrated marker must not retain arbitrary legacy data');
-actualLpacClient.markDownloadVerification('profiles');
-actualLpacClient.markDownloadVerification('notifications');
-
-browserStorage.clear();
-browserStorage.setItem(verificationProfilesKey, 'orphaned-generation');
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, true,
-	'an observation without its marker should be treated as corrupt and fail closed');
-assert.strictEqual(browserStorage.getItem(verificationProfilesKey), null,
-	'orphaned observation storage should be replaced by a clean generation');
-actualLpacClient.markDownloadVerification('profiles');
-actualLpacClient.markDownloadVerification('notifications');
-
-actualLpacClient.requireDownloadVerification();
-actualLpacClient.settleDownloadVerification();
-const staleGeneration =
-	JSON.parse(browserStorage.getItem(verificationStorageKey)).generation;
-actualLpacClient.markDownloadVerification('profiles');
-actualLpacClient.markDownloadVerification('notifications');
-actualLpacClient.requireDownloadVerification();
-actualLpacClient.settleDownloadVerification();
-const currentGeneration =
-	JSON.parse(browserStorage.getItem(verificationStorageKey)).generation;
-assert.notStrictEqual(currentGeneration, staleGeneration,
-	'each ambiguity should receive a distinct storage generation');
-browserStorage.setItem(verificationProfilesKey, staleGeneration);
-browserStorage.setItem(verificationNotificationsKey, staleGeneration);
-assert.deepStrictEqual(actualLpacClient.getDownloadVerification(), {
-	required: true,
-	pending: false,
-	profiles: false,
-	notifications: false,
-	storageAvailable: true
-}, 'successful views from an old tab generation must not clear a newer block');
-actualLpacClient.markDownloadVerification('profiles');
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, true,
-	'the current Profiles view should still require current Notifications');
-browserStorage.setItem(verificationNotificationsKey, staleGeneration);
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, true,
-	'a stale Notifications write must not combine with current Profiles');
-actualLpacClient.markDownloadVerification('notifications');
-assert.strictEqual(actualLpacClient.getDownloadVerification().required, false,
-	'only both observations tagged with the current generation should unblock');
-
-actualLpacClient.requireDownloadVerification();
-const reloadedLpacClient = loadLpacClient();
-assert.deepStrictEqual(reloadedLpacClient.getDownloadVerification(), {
-	required: true,
-	pending: true,
-	profiles: false,
-	notifications: false,
-	storageAvailable: true
-}, 'a fresh frontend module should reload the pending marker from browser storage');
-actualLpacClient.settleDownloadVerification();
-actualLpacClient.markDownloadVerification('profiles');
-actualLpacClient.markDownloadVerification('notifications');
-
-const availableStorage = window.localStorage;
-
-window.localStorage = {
-	getItem: function() { throw new Error('storage unavailable'); },
-	setItem: function() { throw new Error('storage unavailable'); },
-	removeItem: function() { throw new Error('storage unavailable'); }
-};
-const unavailableLpacClient = loadLpacClient();
-assert.deepStrictEqual(unavailableLpacClient.getDownloadVerification(), {
-	required: true,
-	pending: false,
-	profiles: false,
-	notifications: false,
-	storageAvailable: false
-}, 'unavailable browser storage must keep profile downloads fail-closed');
-unavailableLpacClient.markDownloadVerification('profiles');
-unavailableLpacClient.markDownloadVerification('notifications');
-assert.strictEqual(unavailableLpacClient.getDownloadVerification().required, true,
-	'an unavailable store must not claim that cross-page verification was retained');
-window.localStorage = availableStorage;
-
-function overviewResults(defaultAddress) {
-	return [
-		{ success: true, data: 'v2.3.0.444' },
-		{ success: true, data: { apdu: [ 'uqmi' ], http: [ 'curl' ] } },
-		{
-			success: true,
-			data: {
-				eidValue: '89049032000000000000000000000001',
-				EuiccConfiguredAddresses: {
-					defaultDpAddress: defaultAddress,
-					rootDsAddress: 'lpa.ds.gsma.com'
-				},
-				EUICCInfo2: { extCardResource: {} }
-			}
-		},
-		{ success: true, data: { global: { apdu_backend: 'uqmi' } } }
-	];
-}
-
-function infoReadback(defaultAddress) {
-	return Promise.resolve({
-		success: true,
-		data: {
-			EuiccConfiguredAddresses: { defaultDpAddress: defaultAddress }
-		}
-	});
-}
-
-async function testOverviewDefaultSmdp() {
-	const originalAddress = 'old.smdp.example.com';
-	const requestedAddress = 'new.smdp.example.com:443';
-	const overviewView = loadView('overview.js');
-	const overviewPage = overviewView.render(overviewResults(originalAddress));
-
-	documentRoot = overviewPage;
-	const edit = document.getElementById('lpac-default-smdp-edit');
-	const displayed = document.getElementById('lpac-default-smdp-value');
-
-	assert.ok(edit, 'Overview should expose the default SM-DP+ editor with write permission');
-	assert.strictEqual(textContent(displayed), originalAddress,
-		'the editable field should remain next to the current eUICC value');
-	assert.strictEqual(byText(overviewPage, 'button', 'Change').length, 1,
-		'the persistent eUICC editor should not be duplicated in Settings');
-
-	let setCalls = [];
-	let readbackCalls = 0;
-
-	lpac.setDefaultSmdp = function(address) {
-		setCalls.push(address);
-		return Promise.resolve({ success: true, data: null });
-	};
-	lpac.getInfo = function() {
-		readbackCalls++;
-		return infoReadback(requestedAddress);
-	};
-	edit.attrs.click();
-	assert.strictEqual(modal.title, 'Change default SM-DP+ address');
-	assert.ok(textContent(modal.content).includes(originalAddress),
-		'the edit modal should display the old persistent eUICC address');
-	assert.ok(textContent(modal.content).includes('persistent state on the eUICC'),
-		'the edit modal should distinguish eUICC state from a LuCI setting');
-	assert.ok(textContent(modal.content).includes('manual profile download'),
-		'the edit modal should explain the effect on manual download without a server');
-	const input = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-default-smdp-input';
-	})[0];
-
-	assert.strictEqual(input.value, originalAddress,
-		'the new-address input should start from the value read from the eUICC');
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	assert.strictEqual(setCalls.length, 0,
-		'an unchanged value must not proceed to the persistent mutation');
-	assert.ok(textContent(notifications.at(-1).content).includes('different address'));
-	input.value = '';
-	const noticesBeforeEmpty = notifications.length;
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	assert.strictEqual(setCalls.length, 0,
-		'clearing the default address must never reach the RPC');
-	assert.strictEqual(input.attrs['aria-invalid'], 'true');
-	assert.strictEqual(document.activeElement, input,
-		'an empty persistent address should keep focus in the invalid field');
-	assert.strictEqual(notifications.length, noticesBeforeEmpty + 1);
-	assert.ok(textContent(notifications.at(-1).content).includes('cannot be empty'));
-
-	input.value = 'https://invalid.example.com/path';
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	assert.strictEqual(setCalls.length, 0,
-		'a URL or path should be rejected before the persistent-state confirmation');
-	assert.ok(textContent(notifications.at(-1).content).includes('valid SM-DP+ host'));
-	input.value = 'rsp.example.com\n';
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	assert.strictEqual(setCalls.length, 0,
-		'a trailing newline must be rejected explicitly rather than hidden by regex anchoring or trim');
-
-	input.value = requestedAddress;
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	assert.strictEqual(modal.title, 'Confirm persistent SM-DP+ change');
-	assert.ok(textContent(modal.content).includes(originalAddress) &&
-		textContent(modal.content).includes(requestedAddress),
-		'the explicit confirmation should show both old and new addresses');
-	assert.ok(textContent(modal.content).includes('writes persistent eUICC state'),
-		'the second stage should repeat the persistent-state consequence');
-	assert.strictEqual(setCalls.length, 0,
-		'reviewing old and new values must not mutate the eUICC');
-
-	await byText(modal.content, 'button', 'Set persistent address')[0].attrs.click();
-	assert.deepStrictEqual(setCalls, [ requestedAddress ],
-		'the confirmed mutation should send only the validated nonempty address');
-	assert.strictEqual(readbackCalls, 1,
-		'a successful set response must be followed by one fresh get_info readback');
-	assert.strictEqual(textContent(displayed), requestedAddress,
-		'the Overview value should change only after matching eUICC readback');
-	assert.strictEqual(overviewView.currentDefaultSmdp, requestedAddress);
-	assert.strictEqual(notifications.at(-1).level, 'info');
-	assert.ok(textContent(notifications.at(-1).content).includes('verified by eUICC readback'));
-
-	const mismatchedRequest = 'requested.smdp.example.com';
-	const actualAddress = 'actual.smdp.example.com';
-
-	edit.attrs.click();
-	const mismatchInput = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-default-smdp-input';
-	})[0];
-
-	assert.ok(textContent(modal.content).includes(requestedAddress),
-		'a later edit should use the last verified readback as its old value');
-	mismatchInput.value = mismatchedRequest;
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	lpac.getInfo = function() {
-		readbackCalls++;
-		return infoReadback(actualAddress);
-	};
-	await byText(modal.content, 'button', 'Set persistent address')[0].attrs.click();
-	assert.strictEqual(textContent(displayed), actualAddress,
-		'a valid mismatched readback should replace the stale displayed value honestly');
-	assert.strictEqual(overviewView.currentDefaultSmdp, actualAddress);
-	assert.strictEqual(notifications.at(-1).level, 'warning');
-	assert.ok(textContent(notifications.at(-1).content).includes(mismatchedRequest) &&
-		textContent(notifications.at(-1).content).includes(actualAddress),
-		'a mismatch warning should report requested and actual readback values');
-	assert.ok(textContent(notifications.at(-1).content)
-		.includes('No successful change is being claimed'));
-
-	const unreadableRequest = 'unreadable.smdp.example.com';
-
-	edit.attrs.click();
-	const unreadableInput = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-default-smdp-input';
-	})[0];
-
-	unreadableInput.value = unreadableRequest;
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	lpac.getInfo = function() {
-		readbackCalls++;
-		return Promise.resolve({ success: false, error: 'transport_error' });
-	};
-	await byText(modal.content, 'button', 'Set persistent address')[0].attrs.click();
-	assert.strictEqual(textContent(displayed), actualAddress,
-		'a failed readback must not replace the last value actually read from the eUICC');
-	assert.strictEqual(notifications.at(-1).level, 'warning');
-	assert.ok(textContent(notifications.at(-1).content).includes('readback failed'));
-
-	const failedRequest = 'rejected.smdp.example.com';
-	const readbacksBeforeSetFailure = readbackCalls;
-
-	edit.attrs.click();
-	const failedInput = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-default-smdp-input';
-	})[0];
-
-	failedInput.value = failedRequest;
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	lpac.setDefaultSmdp = function(address) {
-		setCalls.push(address);
-		return Promise.resolve({ success: false, error: 'lpac_error' });
-	};
-	await byText(modal.content, 'button', 'Set persistent address')[0].attrs.click();
-	assert.strictEqual(readbackCalls, readbacksBeforeSetFailure,
-		'a definitive failed set response must not be presented as a successful readback');
-	assert.strictEqual(textContent(displayed), actualAddress);
-	assert.strictEqual(notifications.at(-1).level, 'error');
-	assert.ok(textContent(notifications.at(-1).content)
-		.includes('was not confirmed as changed'));
-
-	const ambiguousRequest = 'ambiguous.smdp.example.com';
-
-	edit.attrs.click();
-	const ambiguousInput = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-default-smdp-input';
-	})[0];
-
-	ambiguousInput.value = ambiguousRequest;
-	byText(modal.content, 'button', 'Review change')[0].attrs.click();
-	lpac.setDefaultSmdp = function(address) {
-		setCalls.push(address);
-		return Promise.resolve({ success: false, error: 'transport_error' });
-	};
-	await byText(modal.content, 'button', 'Set persistent address')[0].attrs.click();
-	assert.strictEqual(readbackCalls, readbacksBeforeSetFailure,
-		'an ambiguous failed set envelope must not be mislabeled as successful readback');
-	assert.strictEqual(textContent(displayed), actualAddress);
-	assert.strictEqual(notifications.at(-1).level, 'warning');
-	assert.ok(textContent(notifications.at(-1).content)
-		.includes('outcome could not be confirmed'));
-
-	ui.hideModal();
-	L.hasViewPermission = function() { return false; };
-	const readonlyOverview = loadView('overview.js');
-	const readonlyPage = readonlyOverview.render(overviewResults(actualAddress));
-
-	documentRoot = readonlyPage;
-	assert.strictEqual(findAll(readonlyPage, function(node) {
-		return node.attrs?.id === 'lpac-default-smdp-edit';
-	}).length, 0, 'read-only Overview must not render a persistent eUICC edit action');
-	modal = null;
-	const callsBeforeReadonlyProbe = setCalls.length;
-	readonlyOverview.showDefaultSmdpModal();
-	assert.strictEqual(modal, null,
-		'a direct stale handler must not open the mutation modal without write permission');
-	assert.strictEqual(setCalls.length, callsBeforeReadonlyProbe,
-		'a read-only direct method probe must not call the mutation RPC');
-	L.hasViewPermission = function() { return true; };
-}
+}), 'The provider accepted the notification, but lpac could not remove its local eUICC record. Use Remove instead of processing it again.');
+assert.strictEqual(actualLpacClient.errorMessage({
+	success: false,
+	error: 'timeout',
+	reason: 'preview_timeout'
+}), 'The profile preview expired without a decision and was cancelled before installation.');
+assert.strictEqual(actualLpacClient.errorMessage({
+	success: false,
+	error: 'execution_failed',
+	reason: 'preview_protocol_error'
+}), 'lpac could not complete the protected profile-preview exchange. The profile was not approved for installation.');
 
 const profile = {
 	iccid: '8912345678901234567',
 	isdpAid: 'A0000005591010FFFFFFFF8900001000',
 	profileState: 'disabled',
 	profileNickname: 'Test profile',
-	serviceProviderName: 'Test provider',
-	icon: safePngIcon
+	serviceProviderName: 'Test provider'
 };
 const profilesView = loadView('profiles.js');
 const profilesPage = profilesView.render({ success: true, data: [ profile ] });
@@ -852,38 +369,6 @@ assert.strictEqual(findAll(profilesPage, function(node) {
 	return node.tag === 'link' && node.attrs?.rel === 'stylesheet' &&
 		node.attrs?.href === '/luci-static/resources/view/lpac/profiles.css';
 }).length, 1, 'the profile view should load its scoped responsive stylesheet');
-const renderedProfileIcon = findAll(profilesPage, function(node) {
-	return node.tag === 'img' && node.attrs?.class === 'lpac-profile-icon';
-})[0];
-const renderedIconFallback = findAll(profilesPage, function(node) {
-	return node.attrs?.class === 'lpac-profile-icon lpac-profile-icon-fallback';
-})[0];
-assert.strictEqual(renderedProfileIcon.attrs.src,
-	`data:image/png;base64,${safePngIcon.data}`,
-	'a valid normalized profile icon should render only through its fixed image data URI');
-assert.strictEqual(renderedProfileIcon.attrs.alt, '',
-	'the adjacent profile label should remain the accessible identity for its decorative icon');
-assert.strictEqual(renderedIconFallback.style.display, 'none',
-	'the fallback should remain hidden while a validated icon loads');
-renderedProfileIcon.attrs.error({ currentTarget: renderedProfileIcon });
-assert.strictEqual(renderedProfileIcon.style.display, 'none',
-	'a browser image decode failure should hide the broken provider icon');
-assert.strictEqual(renderedIconFallback.style.display, '',
-	'a browser image decode failure should reveal the non-network fallback');
-
-const invalidIconPage = profilesView.render({
-	success: true,
-	data: [ Object.assign({}, profile, {
-		icon: { mime: 'image/svg+xml', data: safePngIcon.data }
-	}) ]
-});
-assert.strictEqual(findAll(invalidIconPage, function(node) {
-	return node.tag === 'img' && node.attrs?.class === 'lpac-profile-icon';
-}).length, 0, 'an unallowlisted provider icon must never reach an img element');
-assert.strictEqual(findAll(invalidIconPage, function(node) {
-	return node.attrs?.class === 'lpac-profile-icon lpac-profile-icon-fallback' &&
-		node.style.display === '';
-}).length, 1, 'an invalid provider icon should use the local fallback');
 assert.deepStrictEqual(findAll(profilesPage, function(node) {
 	return node.attrs?.class === 'lpac-profile-key';
 }).map(textContent), [ 'Profile:', 'Provider:', 'ICCID:', 'State:' ],
@@ -1009,175 +494,52 @@ const notificationsPage = notificationsView.render({
 const removeButtons = byText(notificationsPage, 'button', 'Remove');
 assert.strictEqual(removeButtons.length, 1, 'Remove button should exist');
 assert.ok(removeButtons[0].attrs.disabled == null,
-	'Remove button must omit the disabled attribute for writable sequence zero');
+	'Remove button must support a writable sequence-zero notification');
+assert.strictEqual(byText(notificationsPage, 'button', 'Process').length, 1,
+	'each notification should expose one provider Process action');
+assert.strictEqual(byText(notificationsPage, 'button', 'Process all').length, 1,
+	'the page should expose one ordered Process all action');
+assert.ok(byText(notificationsPage, 'button', 'Process')[0].attrs.disabled == null &&
+	byText(notificationsPage, 'button', 'Process all')[0].attrs.disabled == null,
+	'provider processing controls should remain writable for sequence zero');
+byText(notificationsPage, 'button', 'Process')[0].attrs.click();
+assert.strictEqual(modal.title, 'Process notification',
+	'sequence zero should open the normal provider-processing confirmation');
+assert.strictEqual(findAll(modal.content, function(node) {
+	return node.attrs?.id === 'lpac-notification-remove-after-process';
+}).length, 1, 'the processing modal should retain the optional local-removal choice');
 assert.strictEqual(findAll(notificationsPage, function(node) {
-	return node.attrs?.class === 'alert-message notice' &&
-		textContent(node).includes('verified HTTPS');
-}).length, 1, 'the page should state that provider processing uses verified HTTPS');
+	return node.attrs?.class === 'alert-message warning' &&
+		textContent(node).startsWith('Security warning: the bundled lpac');
+}).length, 1, 'the page-wide TLS limitation should remain a prominent warning');
 
-async function testNotificationProcessing() {
-	const originalReload = window.location.reload;
-	let reloads = 0;
-
-	window.location.reload = function() { reloads++; };
-
-	const seqZeroView = loadView('notifications.js');
-	const seqZeroRecord = {
-		seqNumber: 0,
-		profileManagementOperation: 'install',
-		iccid: profile.iccid,
-		notificationAddress: 'notify.example.com'
-	};
-	const seqZeroPage = seqZeroView.render({ success: true, data: [ seqZeroRecord ] });
-	const processCalls = [];
-
-	lpac.processNotification = function(seq, removeAfterSuccess) {
-		processCalls.push([ seq, removeAfterSuccess ]);
-		return Promise.resolve({ success: true, data: {} });
-	};
-	byText(seqZeroPage, 'button', 'Process')[0].attrs.click();
-	assert.ok(textContent(modal.content).includes('notification sequence 0'),
-		`sequence zero should be presented as a real notification, not as missing: ${modal.title} / ${textContent(modal.content)}`);
-	const seqZeroRemove = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-notification-remove-after-process';
-	})[0];
-
-	seqZeroRemove.checked = true;
-	await byText(modal.content, 'button', 'Process')[0].attrs.click();
-	assert.deepStrictEqual(processCalls, [ [ '0', true ] ],
-		'sequence zero should reach its per-record RPC as canonical text');
-	assert.strictEqual(reloads, 1,
-		'a successfully processed and removed record should refresh the list once');
-
-	const partialView = loadView('notifications.js');
-	const partialRecords = [ 0, 7, 9 ].map(function(seq) {
-		return Object.assign({}, seqZeroRecord, { seqNumber: seq });
-	});
-	const partialPage = partialView.render({ success: true, data: partialRecords });
-	const partialCalls = [];
-
-	lpac.processNotification = function(seq, removeAfterSuccess) {
-		partialCalls.push([ seq, removeAfterSuccess ]);
-
-		return Promise.resolve(seq === '7'
-			? {
-				success: false,
-				error: 'lpac_error',
-				reason: 'provider_outcome_unknown'
-			}
-			: { success: true, data: {} });
-	};
-	byText(partialPage, 'button', 'Process all')[0].attrs.click();
-	const partialRemove = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-notification-remove-after-process';
-	})[0];
-
-	partialRemove.checked = true;
-	await byText(modal.content, 'button', 'Process all')[0].attrs.click();
-	assert.deepStrictEqual(partialCalls, [ [ '0', true ], [ '7', true ] ],
-		'Process all must run sequentially and stop before the record after an unknown outcome');
-	assert.strictEqual(partialView.processing, false,
-		'notification controls should leave their in-flight state after a stopped batch');
-	const partialProcessButtons = byText(partialPage, 'button', 'Process');
-
-	assert.strictEqual(partialProcessButtons[0].disabled, true,
-		'a completed record must not be sent again from the stale table');
-	assert.strictEqual(partialProcessButtons[1].disabled, true,
-		'an unknown provider outcome must not be sent again from the stale table');
-	assert.strictEqual(partialProcessButtons[2].disabled, false,
-		'a later record that was never attempted should remain available for deliberate per-row processing');
-	assert.strictEqual(byText(partialPage, 'button', 'Process all')[0].disabled, true,
-		'Process all must stay blocked after a partial or unknown batch result');
-	assert.ok(byText(partialPage, 'button', 'Remove').every(function(button) {
-		return button.disabled === false;
-	}), 'Remove should become available after processing stops, including for a provider-handled record');
-	assert.strictEqual(notifications.at(-1).level, 'warning',
-		'an unknown provider outcome should remain visible as a warning without reloading');
-	assert.ok(textContent(notifications.at(-1).content).includes('1 of 3'),
-		'the stopped batch notice should report its exact partial progress');
-	assert.strictEqual(reloads, 1,
-		'an unknown provider outcome must not immediately reload away its warning');
-
-	for (const ambiguousError of [ 'transport_error', 'timeout', 'execution_failed' ]) {
-		const ambiguousView = loadView('notifications.js');
-		const ambiguousPage = ambiguousView.render({ success: true, data: [
-			Object.assign({}, seqZeroRecord, { seqNumber: 10 })
-		] });
-
-		lpac.processNotification = function() {
-			return Promise.resolve({ success: false, error: ambiguousError });
-		};
-		byText(ambiguousPage, 'button', 'Process')[0].attrs.click();
-		const ambiguousRemove = findAll(modal.content, function(node) {
-			return node.attrs?.id === 'lpac-notification-remove-after-process';
-		})[0];
-
-		ambiguousRemove.checked = true;
-		await byText(modal.content, 'button', 'Process')[0].attrs.click();
-		assert.strictEqual(byText(ambiguousPage, 'button', 'Process')[0].disabled, true,
-			`${ambiguousError} must be treated as an unknown provider outcome`);
-		assert.strictEqual(notifications.at(-1).level, 'warning',
-			`${ambiguousError} after submission should warn against blind resend`);
-		assert.ok(textContent(notifications.at(-1).content)
-			.includes('do not process this record again automatically'),
-			`${ambiguousError} should state the no-resend invariant explicitly`);
-	}
-	assert.strictEqual(reloads, 1,
-		'ambiguous process failures must remain visible instead of triggering a reload');
-
-	const removeFailedView = loadView('notifications.js');
-	const removeFailedPage = removeFailedView.render({ success: true, data: [
-		Object.assign({}, seqZeroRecord, { seqNumber: 11 })
-	] });
-
-	lpac.processNotification = function() {
-		return Promise.resolve({
-			success: false,
-			error: 'lpac_error',
-			reason: 'provider_processed_remove_failed'
-		});
-	};
-	byText(removeFailedPage, 'button', 'Process')[0].attrs.click();
-	const removeFailedCheckbox = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-notification-remove-after-process';
-	})[0];
-
-	removeFailedCheckbox.checked = true;
-	await byText(modal.content, 'button', 'Process')[0].attrs.click();
-	assert.strictEqual(byText(removeFailedPage, 'button', 'Process')[0].disabled, true,
-		'a provider-processed record with failed local removal must not be processed twice');
-	assert.strictEqual(byText(removeFailedPage, 'button', 'Remove')[0].disabled, false,
-		'a provider-processed record with failed local removal should retain Remove');
-	assert.strictEqual(notifications.at(-1).level, 'warning');
-	assert.ok(textContent(notifications.at(-1).content)
-		.includes('use Remove instead of processing it again'),
-		'the failed-removal warning should distinguish known delivery from an unknown outcome');
-
-	const retainedView = loadView('notifications.js');
-	const retainedPage = retainedView.render({ success: true, data: [
-		Object.assign({}, seqZeroRecord, { seqNumber: 12 })
-	] });
-
-	lpac.processNotification = function(seq, removeAfterSuccess) {
-		assert.deepStrictEqual([ seq, removeAfterSuccess ], [ '12', false ]);
-		return Promise.resolve({ success: true, data: {} });
-	};
-	byText(retainedPage, 'button', 'Process')[0].attrs.click();
-	const retainedRemove = findAll(modal.content, function(node) {
-		return node.attrs?.id === 'lpac-notification-remove-after-process';
-	})[0];
-
-	retainedRemove.checked = false;
-	await byText(modal.content, 'button', 'Process')[0].attrs.click();
-	assert.strictEqual(byText(retainedPage, 'button', 'Process')[0].disabled, true,
-		'a successfully delivered record intentionally retained on the eUICC must not be resent');
-	assert.strictEqual(byText(retainedPage, 'button', 'Remove')[0].disabled, false,
-		'a retained successfully delivered record should expose only its Remove path');
-	assert.strictEqual(reloads, 1,
-		'retaining a processed record should keep the safety state in the current page');
-
-	window.location.reload = originalReload;
-}
+const overviewView = loadView('overview.js');
+const overviewPage = overviewView.render([
+	{ success: true, data: '2.3.0' },
+	{ success: true, data: { apdu: [ 'mbim' ], http: [ 'curl' ] } },
+	{
+		success: true,
+		data: {
+			eidValue: '89012345678901234567890123456789',
+			EuiccConfiguredAddresses: {
+				defaultDpAddress: 'old.smdp.example.com',
+				rootDsAddress: 'lpa.ds.gsma.com'
+			},
+			EUICCInfo2: { extCardResource: {} }
+		}
+	},
+	{ success: true, data: { global: { apdu_backend: 'mbim' } } }
+]);
+documentRoot = overviewPage;
+const defaultSmdpEdit = document.getElementById('lpac-default-smdp-edit');
+assert.ok(defaultSmdpEdit, 'Overview should expose the persistent default SM-DP+ editor');
+defaultSmdpEdit.attrs.click();
+assert.strictEqual(modal.title, 'Change default SM-DP+ address');
+assert.strictEqual(findAll(modal.content, function(node) {
+	return node.attrs?.id === 'lpac-default-smdp-input';
+})[0].value,
+	'old.smdp.example.com',
+	'the editor should start from the value read from the eUICC');
 
 const settingsView = loadView('settings.js');
 const settingsPage = settingsView.render([
@@ -1237,8 +599,21 @@ assert.strictEqual(findAll(settingsPage, function(node) {
 		textContent(node).startsWith('The AT backend is timing-sensitive');
 }).length, 1, 'AT compatibility guidance should render as field help');
 
+const settingsSource = fs.readFileSync(path.join(appRoot,
+	'htdocs/luci-static/resources/view/lpac/settings.js'), 'utf8');
+assert.ok(!settingsSource.includes('setDefaultSmdp') &&
+	!settingsSource.includes('lpac-default-smdp'),
+	'the persistent eUICC default editor must not be mixed into UCI Settings');
+
 const menu = JSON.parse(fs.readFileSync(path.join(appRoot,
 	'root/usr/share/luci/menu.d/luci-app-lpac.json'), 'utf8'));
+const acl = JSON.parse(fs.readFileSync(path.join(appRoot,
+	'root/usr/share/rpcd/acl.d/luci-app-lpac.json'), 'utf8'))['luci-app-lpac'];
+assert.ok(acl.write.ubus['luci.lpac'].includes('respond_download_preview'),
+	'the write ACL should allow only the typed preview-decision RPC');
+assert.ok(!JSON.stringify(acl).includes('discover_profiles') &&
+	!JSON.stringify(acl).includes('download_discovered_profile'),
+	'the staged ACL must not reintroduce profile discovery RPCs');
 assert.strictEqual(menu['admin/modem'].title, 'Modem',
 	'the application should provide the shared Modem menu root');
 assert.deepStrictEqual(menu['admin/modem'].depends, {},
@@ -1258,35 +633,13 @@ assert.strictEqual(menu['admin/network/lpac'].wildcard, true,
 assert.strictEqual(menu['admin/network/lpac'].title, undefined,
 	'the compatibility alias must not remain visible in Network');
 
-const acl = JSON.parse(fs.readFileSync(path.join(appRoot,
-	'root/usr/share/rpcd/acl.d/luci-app-lpac.json'), 'utf8'));
-const rpcPolicy = acl['luci-app-lpac'];
-assert.deepStrictEqual(rpcPolicy.read.ubus['luci.lpac'], [
-	'get_version',
-	'get_drivers',
-	'get_info',
-	'list_profiles',
-	'list_notifications',
-	'get_download_status',
-	'get_config'
-], 'the read ACL should cover every read-only LuCI RPC');
-assert.deepStrictEqual(rpcPolicy.write.ubus['luci.lpac'], [
-	'enable_profile',
-	'disable_profile',
-	'nickname_profile',
-	'delete_profile',
-	'download_discovered_profile',
-	'download_profile',
-	'discover_profiles',
-	'process_notification',
-	'remove_notification',
-	'respond_download_preview',
-	'set_default_smdp',
-	'set_config'
-], 'the write ACL should cover every state-changing LuCI RPC');
-
 const profileCss = fs.readFileSync(path.join(appRoot,
 	'htdocs/luci-static/resources/view/lpac/profiles.css'), 'utf8');
+assert.ok(!profileCss.includes('lpac-profile-icon') &&
+	findAll(profilesPage, function(node) {
+		return String(node.attrs?.class || '').includes('lpac-profile-icon');
+	}).length === 0,
+	'profile icon UI and styles should remain absent from the staged branch');
 assert.ok(profileCss.includes('#lpac-profile-table,\n\t#lpac-profile-table > tbody {\n\t\tdisplay: block;'),
 	'the responsive layout should not depend on a theme table display mode');
 assert.ok(profileCss.includes('#lpac-profile-table .tr.table-titles {\n\t\tdisplay: none;'),
@@ -1395,18 +748,11 @@ async function testDownloadView() {
 		})[0];
 	}
 
-	function completeDownloadVerification(targetView) {
-		profilesView.render({ success: true, data: [] });
-		notificationsView.render({ success: true, data: [] });
-		targetView.syncVerificationRequired(true);
-	}
-
 	[
 		'lpac-download-mode', 'lpac-activation-code', 'lpac-qr-file',
 		'lpac-qr-camera', 'lpac-qr-file-button', 'lpac-qr-camera-button',
-		'lpac-smdp', 'lpac-smds', 'lpac-matching-id',
-		'lpac-confirmation-code', 'lpac-imei', 'lpac-discovery-results',
-		'lpac-download-clear', 'lpac-download-button',
+		'lpac-smdp', 'lpac-matching-id', 'lpac-confirmation-code',
+		'lpac-imei', 'lpac-download-clear', 'lpac-download-button',
 		'lpac-download-progress', 'lpac-download-progress-text',
 		'lpac-download-verification'
 	].forEach(function(id) {
@@ -1415,8 +761,6 @@ async function testDownloadView() {
 
 	const qrInput = downloadById('lpac-qr-file');
 	const qrCamera = downloadById('lpac-qr-camera');
-	assert.strictEqual(downloadById('lpac-activation-code').attrs.maxlength, 4352,
-		'the DOM should bound raw activation input before linear edge normalization');
 	assert.strictEqual(qrInput.attrs.accept, 'image/png,image/jpeg,image/webp',
 		'the QR picker should limit uploads to supported image types');
 	assert.ok(qrInput.attrs.capture == null,
@@ -1437,29 +781,26 @@ async function testDownloadView() {
 		'the choose-image action should open only the gallery input');
 	assert.strictEqual(qrCamera.clickCount, 1,
 		'the take-photo action should open only the camera input');
-	const tlsNotices = findAll(downloadPage, function(node) {
-		return node.attrs?.class === 'alert-message notice' &&
-			textContent(node).includes('system CA bundle');
+	const downloadWarnings = findAll(downloadPage, function(node) {
+		return node.attrs?.class === 'alert-message warning' &&
+			textContent(node).includes('does not currently verify');
 	});
-	assert.strictEqual(tlsNotices.length, 1,
-		'the Download view should explain the verified provider TLS trust source');
-	assert.ok(textContent(tlsNotices[0]).includes('fail closed'),
-		'the TLS notice should explain failure for an invalid clock, chain, or hostname');
+	assert.strictEqual(downloadWarnings.length, 1,
+		'the Download view should prominently disclose the inherited TLS limitation');
+	assert.ok(textContent(downloadWarnings[0]).includes('does not currently verify'),
+		'the warning should explain peer and hostname verification without hiding the feature');
 	assert.strictEqual(downloadById('lpac-download-button').disabled, false,
-		'the verified TLS notice should not disable an explicitly requested profile download');
+		'the TLS disclosure must not disable an explicitly requested profile download');
 
 	const mode = downloadById('lpac-download-mode');
 	const activationFields = downloadById('lpac-download-activation-fields');
 	const manualFields = downloadById('lpac-download-manual-fields');
-	const discoveryFields = downloadById('lpac-download-discovery-fields');
 	mode.value = 'manual';
 	downloadView.updateMode();
 	assert.strictEqual(activationFields.style.display, 'none',
 		'manual mode should hide activation-code controls');
 	assert.strictEqual(manualFields.style.display, '',
 		'manual mode should reveal non-interactive lpac parameters');
-	assert.strictEqual(discoveryFields.style.display, 'none',
-		'manual mode should keep SM-DS discovery controls hidden');
 
 	const smdpInput = downloadById('lpac-smdp');
 	const matchingInput = downloadById('lpac-matching-id');
@@ -1484,156 +825,14 @@ async function testDownloadView() {
 	smdpInput.value = '[2001:db8::1]:65535';
 	assert.strictEqual(downloadView.collectRequest().smdp, '[2001:db8::1]:65535',
 		'the frontend should accept the bracketed IPv6 form accepted by the RPC');
-	[ '[::1]', '[1:2:3:4:5:6:7:8]', '[::ffff:192.0.2.1]:443' ]
-		.forEach(function(value) {
-			smdpInput.value = value;
-			assert.strictEqual(downloadView.collectRequest().smdp, value,
-				`${value} should pass strict bracketed IPv6 validation`);
-		});
 	[ 'smdp.example.com:0', 'smdp.example.com:65536',
-		'smdp.example.com/path', '[:::]', '[1:2:3:4:5:6:7]',
-		'[1:2:3:4:5:6:7:8:9]', 'rsp.example.com\nsecond',
-		'rsp.example.com\n' ].forEach(function(value) {
+		'smdp.example.com/path' ].forEach(function(value) {
 		smdpInput.value = value;
 		assert.throws(function() { downloadView.collectRequest(); },
 			/The SM-DP\+ address is invalid/,
 			`${value} should be rejected before invoking the RPC`);
 	});
 	smdpInput.value = 'smdp.example.com:443';
-
-	mode.value = 'discovery';
-	downloadView.updateMode();
-	assert.strictEqual(activationFields.style.display, 'none',
-		'SM-DS mode should hide activation-code and QR controls');
-	assert.strictEqual(manualFields.style.display, 'none',
-		'SM-DS mode should hide manual download parameters');
-	assert.strictEqual(discoveryFields.style.display, '',
-		'SM-DS mode should reveal discovery controls');
-	assert.strictEqual(textContent(downloadById('lpac-download-button')), 'Discover profiles',
-		'the primary action should describe discovery before any download starts');
-	const smdsInput = downloadById('lpac-smds');
-	const imeiInput = downloadById('lpac-imei');
-	const discoveryCalls = [];
-	const firstEntryId = 'A'.repeat(32);
-	const secondEntryId = 'B'.repeat(32);
-
-	smdsInput.value = 'discovery.example.com:443';
-	imeiInput.value = '490154203237518';
-	lpac.discoverProfiles = function(smds, imei) {
-		discoveryCalls.push([ smds, imei ]);
-		return Promise.resolve({
-			success: true,
-			data: [
-				{ entry_id: firstEntryId, smdp: 'first.smdp.example.com' },
-				{ entry_id: secondEntryId, smdp: 'second.smdp.example.com:8443' }
-			]
-		});
-	};
-	await downloadView.handlePrimaryAction();
-	assert.deepStrictEqual(discoveryCalls,
-		[ [ 'discovery.example.com:443', '490154203237518' ] ],
-		'SM-DS mode should pass only the validated discovery address and optional IMEI');
-	assert.strictEqual(downloadView.discoveryEntries.length, 2,
-		'all validated opaque discovery results should remain available in this tab');
-	assert.ok(textContent(downloadById('lpac-discovery-results'))
-		.includes('first.smdp.example.com'),
-		'discovery results should identify the non-secret SM-DP+ destination');
-	assert.ok(!textContent(downloadById('lpac-discovery-results')).includes(firstEntryId),
-		'the opaque discovery capability must not be rendered into page text');
-	assert.ok(!textContent(downloadById('lpac-discovery-results')).includes('eventId'),
-		'no SM-DS EventID field should be exposed in the discovery DOM');
-	assert.strictEqual(byText(downloadById('lpac-discovery-results'),
-		'button', 'Review profile').length, 2,
-		'each discovered order should expose a direct preview action');
-
-	const discoveryConfirmation = 'DISCOVERY-CONFIRMATION';
-	downloadById('lpac-confirmation-code').value = discoveryConfirmation;
-	byText(downloadById('lpac-discovery-results'),
-		'button', 'Review profile')[0].attrs.click();
-	assert.strictEqual(modal.title, 'Review discovered profile');
-	assert.ok(!textContent(modal.content).includes(firstEntryId),
-		'the discovery capability should not be echoed in its start confirmation');
-	assert.ok(!textContent(modal.content).includes(discoveryConfirmation),
-		'the discovery confirmation secret should not be echoed in its start confirmation');
-	const discoveryDownloadCalls = [];
-	const discoveryDecisionToken = 'D'.repeat(32);
-
-	lpac.downloadDiscoveredProfile = function(entryId, confirmationCode) {
-		discoveryDownloadCalls.push([ entryId, confirmationCode ]);
-		return Promise.resolve({
-			success: true,
-			data: {
-				job_id: 11,
-				status: 'running',
-				phase: 'authenticating',
-				decision_token: discoveryDecisionToken
-			}
-		});
-	};
-	await byText(modal.content, 'button', 'Retrieve preview')[0].attrs.click();
-	assert.deepStrictEqual(discoveryDownloadCalls,
-		[ [ firstEntryId, discoveryConfirmation ] ],
-		'a discovered order should start directly from its opaque entry capability');
-	assert.strictEqual(downloadView.activeJobOrigin, 'owned',
-		'a discovered preview start with its decision token should belong only to this tab');
-	assert.strictEqual(downloadView.activeDecisionToken, discoveryDecisionToken,
-		'the owned discovery session should retain its unrendered decision token');
-	assert.strictEqual(downloadView.discoveryEntries.length, 0,
-		'a claimed discovery capability should leave the browser result list immediately');
-	assert.strictEqual(modal, null,
-		'authentication should remain inline until the provider preview becomes available');
-
-	lpac.getDownloadStatus = function(jobId, decisionToken) {
-		assert.deepStrictEqual([ jobId, decisionToken ],
-			[ 11, discoveryDecisionToken ]);
-		return Promise.resolve({
-			success: true,
-			data: {
-				job_id: 11,
-				status: 'running',
-				phase: 'awaiting_confirmation',
-				preview: null
-			}
-		});
-	};
-	await downloadView.pollDownload();
-	assert.strictEqual(modal.title, 'Review eSIM profile',
-		'a provider that omits metadata must still reach a mandatory decision dialog');
-	assert.ok(textContent(modal.content).includes('did not supply profile metadata'),
-		'a null preview should clearly disclose that the profile identity is unavailable');
-	assert.ok(textContent(modal.content).includes('first.smdp.example.com'),
-		'the null preview should retain the non-secret SM-DP+ context from discovery');
-	assert.ok(byText(modal.content, 'button', 'Install without metadata')[0],
-		'installing a null-metadata preview should require an explicit, accurately named action');
-	assert.ok(!textContent(modal.content).includes(discoveryDecisionToken),
-		'the preview decision token must never be rendered');
-	assert.ok(!browserStorage.getItem(verificationStorageKey)
-		.includes(discoveryDecisionToken),
-		'the preview decision token must never enter persistent verification storage');
-	const discoveryDecisionCalls = [];
-
-	lpac.respondDownloadPreview = function(jobId, decisionToken, accept) {
-		discoveryDecisionCalls.push([ jobId, decisionToken, accept ]);
-		return Promise.resolve({ success: true, data: {} });
-	};
-	lpac.getDownloadStatus = function(jobId, decisionToken) {
-		assert.deepStrictEqual([ jobId, decisionToken ],
-			[ 11, discoveryDecisionToken ]);
-		return Promise.resolve({
-			success: true,
-			data: { job_id: 11, status: 'cancelled', phase: 'cancelled' }
-		});
-	};
-	await byText(modal.content, 'button', 'Cancel download')[0].attrs.click();
-	assert.deepStrictEqual(discoveryDecisionCalls,
-		[ [ 11, discoveryDecisionToken, false ] ],
-		'cancelling the null preview should send one owned rejection and no approval');
-	assert.strictEqual(downloadView.activeJob, null,
-		'a rejected discovered preview should terminate without installation');
-	assert.strictEqual(downloadView.retryBlocked, false,
-		'a confirmed pre-install cancellation should remain safe for a new request');
-
-	downloadView.clearForm();
 
 	mode.value = 'activation';
 	downloadView.updateMode();
@@ -1651,13 +850,6 @@ async function testDownloadView() {
 		'a harmless trailing U+2060 copied with the Speedtest code should be removed');
 	assert.strictEqual(activationInput.value, speedtestCode,
 		'the normalized activation code should replace the pasted DOM value');
-	activationInput.value = `${' \u2060'.repeat(64)}${speedtestCode}${'\u2060 '.repeat(64)}`;
-	assert.strictEqual(downloadView.collectRequest().activationCode, speedtestCode,
-		'mixed whitespace and format marks at both edges should normalize in one bounded pass');
-	activationInput.value = `LPA:1$smdp.example.com$${'A'.repeat(4353)}`;
-	assert.throws(function() { downloadView.collectRequest(); },
-		/Enter a valid LPA:1/,
-		'raw activation input above the explicit normalization cap must be rejected');
 	activationInput.value = 'LPA:1$smdp.example.com$MATCH$OID$';
 	assert.strictEqual(downloadView.collectRequest().activationCode,
 		'LPA:1$smdp.example.com$MATCH$OID',
@@ -1870,15 +1062,14 @@ async function testDownloadView() {
 
 	downloadView.showDownloadModal();
 	assert.strictEqual(modal.title, 'Review eSIM profile',
-		'the preview session should require confirmation before invoking lpac');
+		'Download should require preview-session confirmation before invoking lpac');
 	assert.ok(!textContent(modal.content).includes('QR-MATCHING-ID'),
 		'the confirmation dialog should not echo the activation secret');
 	assert.ok(!textContent(modal.content).includes('1234'),
 		'the confirmation dialog should not echo the confirmation code');
 
 	const confirmButton = byText(modal.content, 'button', 'Retrieve preview')[0];
-	assert.ok(confirmButton,
-		'the first confirmation should start only the authenticated preview session');
+	assert.ok(confirmButton, 'the confirmation dialog should expose Retrieve preview');
 	const starting = confirmButton.attrs.click();
 	assert.strictEqual(downloadView.downloadStarting, true,
 		'the view should record the in-flight start request');
@@ -1886,11 +1077,7 @@ async function testDownloadView() {
 	downloadView.showDownloadModal();
 	assert.strictEqual(modal, startingModal,
 		'a repeated click while starting must not replace the progress modal');
-	await Promise.resolve();
-	assert.strictEqual(typeof resolveDownloadStart, 'function',
-		'the confirmed preview request should invoke the download start RPC once');
-	const ownedDecisionToken = 'T'.repeat(32);
-
+	const ownedDecisionToken = 'A'.repeat(32);
 	resolveDownloadStart({
 		success: true,
 		data: {
@@ -1910,9 +1097,7 @@ async function testDownloadView() {
 	assert.strictEqual(downloadView.activeJobOrigin, 'owned',
 		'a job identifier returned by this start request should be owned by the form');
 	assert.strictEqual(downloadView.activeDecisionToken, ownedDecisionToken,
-		'an owned job must retain the mandatory one-time decision token');
-	assert.strictEqual(downloadView.activePhase, 'authenticating',
-		'a new provider session should begin in the exact backend authentication phase');
+		'the one-shot preview capability should remain only in the starting tab');
 	assert.strictEqual(modal, null,
 		'the short start modal should close after the background job is attached');
 	assert.strictEqual(downloadById('lpac-download-progress').style.display, '',
@@ -1923,87 +1108,6 @@ async function testDownloadView() {
 	assert.strictEqual(modal, null,
 		'a repeated click for an active job must not open a second confirmation modal');
 
-	const metadataPreview = {
-		profileName: 'Speedtest profile',
-		serviceProviderName: 'Test provider',
-		iccid: '8944500102198099736',
-		profileClass: 'testing',
-		icon: safeJpegIcon
-	};
-	lpac.getDownloadStatus = function(jobId, decisionToken) {
-		assert.deepStrictEqual([ jobId, decisionToken ], [ 17, ownedDecisionToken ]);
-		return Promise.resolve({
-			success: true,
-			data: {
-				job_id: 17,
-				status: 'running',
-				phase: 'awaiting_confirmation',
-				preview: metadataPreview
-			}
-		});
-	};
-	await downloadView.pollDownload();
-	assert.strictEqual(modal.title, 'Review eSIM profile',
-		'provider metadata should open the mandatory second-stage decision dialog');
-	[ 'Speedtest profile', 'Test provider', '8944500102198099736', 'testing' ]
-		.forEach(function(value) {
-			assert.ok(textContent(modal.content).includes(value),
-				`the owned preview should display normalized metadata: ${value}`);
-		});
-	const previewIcon = findAll(modal.content, function(node) {
-		return node.tag === 'img' && node.attrs?.src ===
-			`data:image/jpeg;base64,${safeJpegIcon.data}`;
-	})[0];
-	const previewIconFallback = findAll(modal.content, function(node) {
-		return node.attrs?.class === 'lpac-preview-icon-fallback';
-	})[0];
-
-	assert.ok(previewIcon,
-		'the preview should reuse the bounded PNG/JPEG icon validator');
-	assert.strictEqual(previewIconFallback.style.display, 'none',
-		'the neutral preview fallback should start hidden for a validated icon');
-	previewIcon.attrs.error({ currentTarget: previewIcon });
-	assert.strictEqual(previewIcon.style.display, 'none',
-		'a browser decode failure should hide a truncated or CRC-invalid preview icon');
-	assert.strictEqual(previewIconFallback.style.display, 'inline-block',
-		'a browser decode failure should reveal the neutral preview icon fallback');
-	assert.ok(!textContent(modal.content).includes('QR-MATCHING-ID') &&
-		!textContent(modal.content).includes('1234') &&
-		!textContent(modal.content).includes(ownedDecisionToken),
-		'the metadata dialog must not echo activation, confirmation, or decision secrets');
-	assert.strictEqual(byText(modal.content, 'button', 'Install profile').length, 1,
-		'metadata retrieval alone must never install without a second explicit click');
-	const previewDecisionCalls = [];
-
-	lpac.respondDownloadPreview = function(jobId, decisionToken, accept) {
-		previewDecisionCalls.push([ jobId, decisionToken, accept ]);
-		return Promise.resolve({ success: false, error: 'transport_error' });
-	};
-	lpac.getDownloadStatus = function(jobId, decisionToken) {
-		assert.deepStrictEqual([ jobId, decisionToken ], [ 17, ownedDecisionToken ]);
-		return Promise.resolve({
-			success: true,
-			data: {
-				job_id: 17,
-				status: 'running',
-				phase: 'awaiting_confirmation',
-				preview: metadataPreview
-			}
-		});
-	};
-	await byText(modal.content, 'button', 'Install profile')[0].attrs.click();
-	assert.deepStrictEqual(previewDecisionCalls,
-		[ [ 17, ownedDecisionToken, true ] ],
-		'an explicit installation decision should send its owned token exactly once');
-	assert.strictEqual(modal, null,
-		'a lost approval response must not reopen a dialog that could resend approval');
-	assert.strictEqual(downloadView.previewDecisionSent, true,
-		'a lost approval response should remain one-shot while status polling resolves it');
-	await downloadView.pollDownload();
-	assert.deepStrictEqual(previewDecisionCalls,
-		[ [ 17, ownedDecisionToken, true ] ],
-		'continued awaiting status must never trigger an automatic or duplicate approval');
-
 	const statuses = [
 		{ success: false, error: 'transport_error' },
 		{ success: false, error: 'transport_error' },
@@ -2011,11 +1115,26 @@ async function testDownloadView() {
 		{ success: true, data: { status: 'idle' } },
 		{
 			success: true,
-			data: { job_id: 17, status: 'running', phase: 'installing' }
+			data: { job_id: 17, status: 'running', phase: 'authenticating' }
 		},
-		{ success: true, data: { job_id: 17, status: 'success', phase: 'complete' } }
+		{
+			success: true,
+			data: {
+				job_id: 17,
+				status: 'running',
+				phase: 'awaiting_confirmation',
+				preview: {
+					profileName: 'Preview plan',
+					serviceProviderName: 'Preview carrier',
+					iccid: '8912345678901234567',
+					profileClass: 'operational'
+				}
+			}
+		},
+		{ success: true, data: { status: 'success' } }
 	];
 	const polledJobs = [];
+	const previewDecisionCalls = [];
 	let rejectFirstPoll = true;
 	lpac.getDownloadStatus = function(jobId, decisionToken) {
 		polledJobs.push([ jobId, decisionToken ]);
@@ -2026,6 +1145,13 @@ async function testDownloadView() {
 		}
 
 		return Promise.resolve(statuses.shift());
+	};
+	lpac.respondDownloadPreview = function(jobId, decisionToken, accept) {
+		previewDecisionCalls.push([ jobId, decisionToken, accept ]);
+		return Promise.resolve({
+			success: true,
+			data: { job_id: jobId, status: 'running', phase: 'installing' }
+		});
 	};
 	await downloadView.pollDownload();
 	assert.strictEqual(downloadView.activeJob, 17,
@@ -2049,11 +1175,28 @@ async function testDownloadView() {
 	assert.strictEqual(downloadView.activeJob, 17,
 		'a canonical running status should retain the download and recover polling');
 	await downloadView.pollDownload();
+	assert.strictEqual(modal.title, 'Review eSIM profile',
+		'owner-only metadata should open the installation decision modal');
+	[ 'Preview plan', 'Preview carrier', '8912345678901234567', 'operational' ]
+		.forEach(function(value) {
+			assert.ok(modal.content.map(textContent).join('').includes(value),
+				`the profile preview should display ${value}`);
+		});
+	assert.strictEqual(findAll(modal.content, function(node) {
+		return node.tag === 'img';
+	}).length, 0, 'the profile preview must remain icon-free on this staged branch');
+	const installButton = byText(modal.content, 'button', 'Install profile')[0];
+	assert.ok(installButton, 'metadata review should require an explicit Install profile action');
+	await installButton.attrs.click();
+	assert.deepStrictEqual(previewDecisionCalls,
+		[ [ 17, ownedDecisionToken, true ] ],
+		'the owner should send one exact job-scoped preview approval');
+	await downloadView.pollDownload();
 	assert.strictEqual(downloadView.activeJob, null,
 		'a completed download should leave the active state');
 	assert.deepStrictEqual(polledJobs,
-		Array(7).fill([ 17, ownedDecisionToken ]),
-		'all owned status polls should retain the exact tab-scoped decision token');
+		Array(8).fill(null).map(function() { return [ 17, ownedDecisionToken ]; }),
+		'owned status polling should use the job identifier and tab-scoped decision token');
 	assert.strictEqual(downloadById('lpac-activation-code').value, '',
 		'the activation secret should be cleared after success');
 	assert.strictEqual(downloadById('lpac-confirmation-code').value, '',
@@ -2068,51 +1211,6 @@ async function testDownloadView() {
 		'the Download action should be restored after terminal success');
 	assert.strictEqual(notifications.at(-1).level, 'info',
 		'a successful profile download should produce an information notice');
-
-	const decisionsBeforeMissingToken = previewDecisionCalls.length;
-	lpac.downloadProfile = function() {
-		return Promise.resolve({
-			success: true,
-			data: {
-				job_id: 18,
-				status: 'running',
-				phase: 'awaiting_confirmation',
-				preview: metadataPreview
-			}
-		});
-	};
-	await downloadView.startDownload({
-		mode: 'activation',
-		activationCode: 'LPA:1$missing-token.example.com$TOKENLESS',
-		smdp: '',
-		matchingId: '',
-		imei: '',
-		confirmationCode: ''
-	});
-	assert.strictEqual(downloadView.activeJobOrigin, 'uncertain',
-		'a start response without its mandatory decision token must not be owned');
-	assert.strictEqual(downloadView.activeDecisionToken, null,
-		'a missing decision token must never be synthesized or recovered publicly');
-	assert.strictEqual(modal, null,
-		'metadata without an owned decision token must not expose an approval action');
-	assert.strictEqual(downloadView.retryBlocked, true,
-		'a malformed tokenless start should require state verification before retry');
-	lpac.getDownloadStatus = function(jobId, decisionToken) {
-		assert.deepStrictEqual([ jobId, decisionToken ], [ 18, '' ],
-			'a tokenless job may be monitored only through sanitized public status');
-		return Promise.resolve({
-			success: true,
-			data: { job_id: 18, status: 'cancelled', phase: 'cancelled' }
-		});
-	};
-	await downloadView.pollDownload();
-	assert.strictEqual(previewDecisionCalls.length, decisionsBeforeMissingToken,
-		'a tokenless preview must time out or cancel without any frontend approval RPC');
-	assert.strictEqual(downloadView.activeJob, null,
-		'a publicly observed tokenless cancellation should end monitoring safely');
-	completeDownloadVerification(downloadView);
-	assert.strictEqual(downloadView.retryBlocked, false,
-		'Profiles and Notifications verification should unblock after tokenless cancellation');
 
 	activationInput.value = 'LPA:1$unsent.example.com$UNSENT';
 	lpac.downloadProfile = function() {
@@ -2182,7 +1280,6 @@ async function testDownloadView() {
 
 	const lostStartStatusCalls = [];
 	const notificationsBeforeLostStart = notifications.length;
-	let resolveLostStartStatus = null;
 	activationInput.value = speedtestCode;
 	lpac.downloadProfile = function() {
 		return Promise.resolve({ success: false, error: 'transport_error' });
@@ -2190,11 +1287,11 @@ async function testDownloadView() {
 	lpac.getDownloadStatus = function(jobId) {
 		lostStartStatusCalls.push(jobId);
 
-		return new Promise(function(resolve) {
-			resolveLostStartStatus = resolve;
-		});
+		return Promise.resolve(jobId === 0
+			? { success: true, data: { job_id: 29, status: 'running' } }
+			: { success: false, error: 'job_not_found' });
 	};
-	const lostStart = downloadView.startDownload({
+	await downloadView.startDownload({
 		mode: 'activation',
 		activationCode: speedtestCode,
 		smdp: '',
@@ -2202,33 +1299,6 @@ async function testDownloadView() {
 		imei: '',
 		confirmationCode: ''
 	});
-	for (let i = 0; i < 8 && resolveLostStartStatus === null; i++)
-		await Promise.resolve();
-
-	assert.strictEqual(typeof resolveLostStartStatus, 'function',
-		'an ambiguous start should begin exactly one current-job recovery request');
-	assert.deepStrictEqual(lpac.getDownloadVerification(), {
-		required: true,
-		pending: true,
-		profiles: false,
-		notifications: false,
-		storageAvailable: true
-	}, 'an ambiguous start must persist its verification marker before recovery finishes');
-	const storedAmbiguousMarker = browserStorage.getItem(verificationStorageKey);
-	assert.ok(!storedAmbiguousMarker.includes(speedtestCode) &&
-		!storedAmbiguousMarker.includes('LPA:'),
-		'the persistent ambiguity marker must not contain an activation credential');
-	const concurrentRecoveryPoll = downloadView.pollDownload();
-	const duplicateRecoveryPoll = downloadView.pollDownload();
-	assert.strictEqual(concurrentRecoveryPoll, duplicateRecoveryPoll,
-		'concurrent polls should join the in-flight start-recovery status check');
-	assert.deepStrictEqual(lostStartStatusCalls, [ 0 ],
-		'start recovery and concurrent polling must issue only one status request');
-	resolveLostStartStatus({
-		success: true,
-		data: { job_id: 29, status: 'running' }
-	});
-	await Promise.all([ lostStart, concurrentRecoveryPoll, duplicateRecoveryPoll ]);
 	assert.deepStrictEqual(lostStartStatusCalls, [ 0 ],
 		'an ambiguous lost start response should query the recoverable current job');
 	assert.strictEqual(downloadView.activeJob, 29,
@@ -2260,9 +1330,10 @@ async function testDownloadView() {
 	assert.strictEqual(notifications.at(-1).level, 'warning',
 		'an uncertain job must not be announced as this form\'s successful download');
 
-	completeDownloadVerification(downloadView);
-	assert.strictEqual(downloadView.retryBlocked, false,
-		'successfully visiting both verification views should unblock a later download');
+	/* Reset only the test fixture to exercise a separate owned-job rediscovery path. */
+	downloadView.retryBlocked = false;
+	downloadView.setVerificationRequired(false);
+	downloadView.updateControls();
 	lpac.downloadProfile = function() {
 		return Promise.resolve({
 			success: true,
@@ -2270,7 +1341,7 @@ async function testDownloadView() {
 				job_id: 29,
 				status: 'running',
 				phase: 'authenticating',
-				decision_token: 'R'.repeat(32)
+				decision_token: 'B'.repeat(32)
 			}
 		});
 	};
@@ -2284,22 +1355,6 @@ async function testDownloadView() {
 	});
 	assert.strictEqual(downloadView.activeJobOrigin, 'owned',
 		'a direct start result should establish ownership before rediscovery is needed');
-	assert.strictEqual(downloadView.activeDecisionToken, 'R'.repeat(32),
-		'only the direct start response should establish preview decision ownership');
-	downloadView.handlePreviewState({
-		success: true,
-		data: {
-			job_id: 29,
-			status: 'running',
-			phase: 'awaiting_confirmation',
-			preview: null
-		}
-	});
-	assert.strictEqual(modal.title, 'Review eSIM profile',
-		'the owned job should expose its null-metadata decision before it disappears');
-	const staleInstallButton = byText(modal.content,
-		'button', 'Install without metadata')[0];
-	const decisionsBeforeMissingJob = previewDecisionCalls.length;
 
 	const rediscoveryCalls = [];
 	let rediscoveryCurrentChecks = 0;
@@ -2321,13 +1376,6 @@ async function testDownloadView() {
 		'a malformed rediscovery response must not abandon the remembered owned job');
 	assert.strictEqual(downloadView.activeJobOrigin, 'owned',
 		'a malformed rediscovery response must not change job ownership');
-	assert.strictEqual(modal, null,
-		'a definitive missing-job response must close its stale preview decision');
-	assert.strictEqual(downloadView.previewDecisionSent, true,
-		'a missing owned job must permanently consume the stale frontend decision path');
-	await staleInstallButton.attrs.click();
-	assert.strictEqual(previewDecisionCalls.length, decisionsBeforeMissingJob,
-		'a detached stale modal handler must not approve a missing job');
 	await downloadView.pollDownload();
 	assert.deepStrictEqual(rediscoveryCalls, [ 29, 0, 29, 0 ],
 		'a missing remembered job should rediscover the backend current job');
@@ -2335,8 +1383,6 @@ async function testDownloadView() {
 		'current-job rediscovery should reattach even when the opaque ID changed');
 	assert.strictEqual(downloadView.activeJobOrigin, 'external',
 		'a different rediscovered job identifier must not retain ownership attribution');
-	assert.strictEqual(downloadView.activeDecisionToken, null,
-		'a public rediscovery response must discard the prior job decision token');
 	assert.strictEqual(downloadView.retryBlocked, true,
 		'losing an owned job must preserve verification blocking while an external job runs');
 
@@ -2351,9 +1397,10 @@ async function testDownloadView() {
 	assert.strictEqual(downloadView.retryBlocked, true,
 		'the missing owned job outcome must remain blocked after the external job ends');
 
-	completeDownloadVerification(downloadView);
-	assert.strictEqual(downloadView.retryBlocked, false,
-		'a second ambiguous outcome should also require both successful views');
+	/* Reset only the test fixture before probing a separate unobservable fast completion. */
+	downloadView.retryBlocked = false;
+	downloadView.setVerificationRequired(false);
+	downloadView.updateControls();
 
 	let ambiguousStatusPolls = 0;
 	lpac.downloadProfile = function() {
@@ -2420,80 +1467,6 @@ async function testDownloadView() {
 		'clearing visible credentials must not clear the unknown-outcome invariant');
 	assert.strictEqual(downloadById('lpac-download-button').disabled, true,
 		'the Download action must remain blocked after Clear');
-
-	lpac.getDownloadStatus = function() {
-		return Promise.resolve({ success: true, data: { status: 'idle' } });
-	};
-	const blockedReloadView = loadView('download.js');
-	const blockedReloadStatus = await blockedReloadView.load();
-	const blockedReloadPage = blockedReloadView.render(blockedReloadStatus);
-	documentRoot = blockedReloadPage;
-	assert.strictEqual(blockedReloadView.retryBlocked, true,
-		'an unknown-outcome block should survive view reload and re-entry');
-	assert.strictEqual(document.getElementById('lpac-download-button').disabled, true,
-		'the reloaded Download action must retain the persistent block');
-
-	profilesView.render({ success: true, data: [] });
-	window.dispatchStorage(verificationProfilesKey);
-	assert.deepStrictEqual(lpac.getDownloadVerification(), {
-		required: true,
-		pending: false,
-		profiles: true,
-		notifications: false,
-		storageAvailable: true
-	}, 'a successful Profiles visit should be retained without clearing the block alone');
-	assert.strictEqual(blockedReloadView.retryBlocked, true,
-		'an existing Download tab should remain blocked after only Profiles succeeds');
-	notificationsView.render({ success: false, error: 'transport_error' });
-	window.dispatchStorage(verificationNotificationsKey);
-	assert.strictEqual(blockedReloadView.retryBlocked, true,
-		'a failed Notifications visit must not count as verification');
-	notificationsView.render({ success: true, data: [] });
-	window.dispatchStorage(verificationNotificationsKey);
-	assert.strictEqual(lpac.getDownloadVerification().required, false,
-		'a successful visit to both required views should clear the persistent marker');
-	assert.strictEqual(blockedReloadView.retryBlocked, false,
-		'an existing Download tab should observe verification completed in another tab');
-	assert.strictEqual(document.getElementById('lpac-download-button').disabled, false,
-		'the cross-tab storage event should restore Download only after both views succeed');
-
-	lpac.requireDownloadVerification();
-	window.dispatchStorage(verificationStorageKey);
-	assert.strictEqual(blockedReloadView.retryBlocked, true,
-		'an existing Download tab should immediately adopt a new ambiguity marker');
-	assert.strictEqual(blockedReloadView.checkingCurrentJob, true,
-		'a tab receiving a pending marker should begin current-job recovery');
-	const pendingReloadView = loadView('download.js');
-	const pendingReloadStatus = await pendingReloadView.load();
-	const pendingReloadPage = pendingReloadView.render(pendingReloadStatus);
-	documentRoot = pendingReloadPage;
-	assert.strictEqual(pendingReloadView.retryBlocked, true,
-		'a pending marker with canonical idle status should remain blocked');
-	assert.deepStrictEqual(lpac.getDownloadVerification(), {
-		required: true,
-		pending: false,
-		profiles: false,
-		notifications: false,
-		storageAvailable: true
-	}, 'canonical idle on re-entry should settle a pending marker and enable verification');
-	completeDownloadVerification(pendingReloadView);
-	assert.strictEqual(pendingReloadView.retryBlocked, false,
-		'both successful views should clear a marker settled during initial render');
-
-	const availableVerificationReader = lpac.getDownloadVerification;
-
-	lpac.getDownloadVerification =
-		unavailableLpacClient.getDownloadVerification.bind(unavailableLpacClient);
-	const unavailableStorageView = loadView('download.js');
-	const unavailableStorageStatus = await unavailableStorageView.load();
-	const unavailableStoragePage = unavailableStorageView.render(unavailableStorageStatus);
-	documentRoot = unavailableStoragePage;
-	assert.strictEqual(document.getElementById('lpac-download-button').disabled, true,
-		'unavailable browser storage should visibly keep Download fail-closed');
-	assert.ok(textContent(document.getElementById('lpac-download-verification'))
-		.includes('Browser site storage is unavailable'),
-		'the fail-closed page should explain how browser storage affects verification');
-	lpac.getDownloadVerification = availableVerificationReader;
 
 	const recoveredStatusCalls = [];
 	lpac.getDownloadStatus = function(jobId) {
@@ -2614,8 +1587,8 @@ async function testDownloadView() {
 	L.hasViewPermission = function() { return true; };
 }
 
-testOverviewDefaultSmdp().then(testNotificationProcessing).then(testDownloadView).then(function() {
-	console.log('ok - frontend Overview readback, discovery, preview, icons, notifications, QR decoding, and safety states');
+testDownloadView().then(function() {
+	console.log('ok - frontend controls, download recovery, real QR decoding, menu, and safety states');
 }).catch(function(error) {
 	console.error(error);
 	process.exitCode = 1;

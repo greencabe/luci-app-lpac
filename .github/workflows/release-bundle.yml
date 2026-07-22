@@ -245,10 +245,9 @@ jobs:
           The default APDU backend for new installations is MBIM.
           The same option is available in Modem > eSIM Manager > Settings.
 
-          Network-facing lpac operations verify the provider certificate chain
-          and hostname against OpenWrt's system CA bundle. Ensure the router
-          clock and CA bundle are valid before downloading or processing a
-          notification; verification failures are not bypassed.
+          This staged lpac build inherits v2.3.0's curl transport, which does
+          not verify the provider certificate chain or hostname. Use network-
+          facing operations only with a trusted provider source and network.
           EOF
 
           (

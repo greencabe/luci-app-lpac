@@ -28,6 +28,7 @@ const DOWNLOAD_OUTPUT_MAX_BYTES = 65536;
 const DOWNLOAD_OUTPUT_MAX_LINE_BYTES = 16384;
 const DOWNLOAD_OUTPUT_MAX_LINES = 256;
 const DOWNLOAD_OUTPUT_DRAIN_BYTES = 8192;
+const DOWNLOAD_DECISION_RANDOM_BYTES = 24;
 /*
  * uloop.process() shifts away waitpid() signal bits, so a signalled supervisor
  * appears to exit with zero. Reserve nonzero wrapper statuses for every normal
@@ -62,13 +63,6 @@ const ACTIVATION_CODE_MAX_LENGTH = 4096;
 const ACTIVATION_EDGE_OVERHEAD = 256;
 const ACTIVATION_CODE_RAW_MAX_LENGTH =
 	ACTIVATION_CODE_MAX_LENGTH + ACTIVATION_EDGE_OVERHEAD;
-const PROFILE_ICON_MAX_BYTES = 1024;
-const PROFILE_ICON_BASE64_MAX_LENGTH = 1368;
-const PROFILE_ICON_TOTAL_MAX_BYTES = 32768;
-const DISCOVERY_RESULT_MAX = 64;
-const DISCOVERY_EVENT_ID_MAX_LENGTH = 4096;
-const DISCOVERY_ENTRY_TTL_SECONDS = 300;
-const DISCOVERY_RANDOM_BYTES = 24;
 const ACTIVATION_EDGE_MARKS = [
 	'\u00ad', '\u034f', '\u061c', '\u180e', '\u200b', '\u200c', '\u200d',
 	'\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
@@ -88,11 +82,6 @@ let download_output_watch = null;
 let download_job_id = 0;
 let download_jobs = {};
 let download_job_order = [];
-/* eventId values are kept only in this process and are never returned by RPC. */
-let discovery_entries = {};
-let discovery_entry_order = [];
-let discovery_timer = null;
-let discovery_generation = 0;
 
 /*
  * Keep the connection alive for the lifetime of the rpcd script.  Its nested
@@ -103,8 +92,6 @@ let discovery_generation = 0;
 const ubus = connect(null, 610);
 
 const INVALID = {};
-const DISCOVERY_ENTROPY_FAILED = {};
-const DISCOVERY_STORAGE_FAILED = {};
 
 function success(data) {
 	return {
@@ -485,174 +472,35 @@ function normalize_info(data) {
 	};
 }
 
-function normalize_profile_icon(icon_type, data, available_bytes) {
-	let mime;
-
-	if (icon_type == 'png')
-		mime = 'image/png';
-	else if (icon_type == 'jpeg')
-		mime = 'image/jpeg';
-	else
-		return null;
-
-	if (type(data) != 'string' || !length(data) ||
-	    length(data) > PROFILE_ICON_BASE64_MAX_LENGTH ||
-	    length(data) % 4 != 0 ||
-	    match(data, /^[A-Za-z0-9+\/]+={0,2}$/) === null)
-		return null;
-
-	const decoded = b64dec(data);
-
-	/* Re-encoding rejects non-canonical padding and non-zero trailing bits. */
-	if (type(decoded) != 'string' || !length(decoded) ||
-	    length(decoded) > PROFILE_ICON_MAX_BYTES ||
-	    length(decoded) > available_bytes || b64enc(decoded) != data)
-		return null;
-
-	let magic_matches = false;
-
-	if (mime == 'image/png' && length(decoded) >= 8) {
-		magic_matches = ord(decoded, 0) == 137 && ord(decoded, 1) == 80 &&
-			ord(decoded, 2) == 78 && ord(decoded, 3) == 71 &&
-			ord(decoded, 4) == 13 && ord(decoded, 5) == 10 &&
-			ord(decoded, 6) == 26 && ord(decoded, 7) == 10;
-	}
-	else if (mime == 'image/jpeg' && length(decoded) >= 3) {
-		magic_matches = ord(decoded, 0) == 255 && ord(decoded, 1) == 216 &&
-			ord(decoded, 2) == 255;
-	}
-
-	return magic_matches ? {
-		icon: { mime, data },
-		bytes: length(decoded)
-	} : null;
-}
-
 function normalize_preview_metadata(data) {
 	if (type(data) != 'object')
 		return INVALID;
 
-	const metadata = {
+	return {
 		iccid: valid_iccid(data.iccid) ? data.iccid : null,
 		serviceProviderName: safe_text(data.serviceProviderName, 128),
 		profileName: safe_text(data.profileName, 128),
 		profileClass: safe_text(data.profileClass, 32)
 	};
-	const icon = normalize_profile_icon(data.iconType, data.icon,
-		PROFILE_ICON_MAX_BYTES);
-
-	if (icon !== null)
-		metadata.icon = icon.icon;
-
-	return metadata;
-}
-
-function cancel_discovery_expiry() {
-	discovery_generation++;
-	const instance = discovery_timer;
-
-	discovery_timer = null;
-
-	if (!instance)
-		return;
-
-	try {
-		instance.cancel();
-	}
-	catch (e) {
-		/* A fired timer may already have been detached from the event loop. */
-	}
-}
-
-function wipe_discovery_entries() {
-	discovery_entries = {};
-	discovery_entry_order = [];
-}
-
-function clear_discovery_entries() {
-	cancel_discovery_expiry();
-	wipe_discovery_entries();
-}
-
-function schedule_discovery_expiry() {
-	cancel_discovery_expiry();
-
-	const generation = discovery_generation;
-	let instance = null;
-	let armed = false;
-
-	try {
-		instance = timer(-1, function() {
-			if (generation != discovery_generation ||
-			    discovery_timer !== instance)
-				return;
-
-			discovery_timer = null;
-			discovery_generation++;
-			wipe_discovery_entries();
-		});
-
-		armed = instance !== null &&
-			instance.set(DISCOVERY_ENTRY_TTL_SECONDS * 1000) === true;
-	}
-	catch (e) {
-		armed = false;
-	}
-
-	if (!armed) {
-		if (instance) {
-			try {
-				instance.cancel();
-			}
-			catch (e) {
-				/* Timer setup already failed; storage will fail closed below. */
-			}
-		}
-
-		discovery_generation++;
-		return false;
-	}
-
-	discovery_timer = instance;
-	return true;
-}
-
-function prune_discovery_entries() {
-	const now = time();
-	const retained = [];
-
-	for (let entry_id in discovery_entry_order) {
-		const entry = discovery_entries[entry_id];
-
-		if (entry && entry.expires_at > now)
-			push(retained, entry_id);
-		else
-			delete discovery_entries[entry_id];
-	}
-
-	discovery_entry_order = retained;
-
-	if (!length(retained))
-		cancel_discovery_expiry();
 }
 
 function random_secret_token() {
-	let handle = null;
+	let file = null;
 	let bytes = null;
 
 	try {
-		handle = fs.open('/dev/urandom', 're');
+		file = fs.open('/dev/urandom', 're');
 
-		if (handle)
-			bytes = handle.read(DISCOVERY_RANDOM_BYTES);
+		if (file)
+			bytes = file.read(DOWNLOAD_DECISION_RANDOM_BYTES);
 	}
 	catch (e) {
 		bytes = null;
 	}
 
-	if (handle) {
+	if (file) {
 		try {
-			if (handle.close() !== true)
+			if (file.close() !== true)
 				bytes = null;
 		}
 		catch (e) {
@@ -660,7 +508,8 @@ function random_secret_token() {
 		}
 	}
 
-	if (type(bytes) != 'string' || length(bytes) != DISCOVERY_RANDOM_BYTES)
+	if (type(bytes) != 'string' ||
+	    length(bytes) != DOWNLOAD_DECISION_RANDOM_BYTES)
 		return null;
 
 	const token = replace(replace(b64enc(bytes), /\+/g, '-'), /\//g, '_');
@@ -687,125 +536,8 @@ function constant_time_equal(left, right) {
 	return difference == 0;
 }
 
-/* These helpers are internal; eventId and IMEI never cross the RPC boundary. */
-function claim_discovery_entry(entry_id, claim_id) {
-	if (!valid_secret_token(entry_id) ||
-	    !valid_secret_token(claim_id))
-		return null;
-
-	prune_discovery_entries();
-
-	const entry = discovery_entries[entry_id];
-
-	if (!entry || entry.claim_id !== null)
-		return null;
-
-	entry.claim_id = claim_id;
-
-	return {
-		event_id: entry.event_id,
-		smdp: entry.smdp,
-		imei: entry.imei,
-		expires_at: entry.expires_at
-	};
-}
-
-function restore_discovery_entry(entry_id, claim_id) {
-	const entry = discovery_entries[entry_id];
-
-	if (!entry || entry.claim_id !== claim_id)
-		return false;
-
-	if (entry.expires_at <= time()) {
-		delete discovery_entries[entry_id];
-		prune_discovery_entries();
-		return false;
-	}
-
-	entry.claim_id = null;
-	return true;
-}
-
-function finalize_discovery_entry(entry_id, claim_id) {
-	const entry = discovery_entries[entry_id];
-
-	if (!entry || entry.claim_id !== claim_id)
-		return false;
-
-	delete discovery_entries[entry_id];
-	prune_discovery_entries();
-	return true;
-}
-
-function normalize_discovery(data, imei) {
-	if (type(data) != 'array' || length(data) > DISCOVERY_RESULT_MAX ||
-	    type(imei) != 'string' || (length(imei) && !valid_imei(imei)))
-		return INVALID;
-
-	const entries = {};
-	const entry_order = [];
-	const response = [];
-	const seen = {};
-	const expires_at = time() + DISCOVERY_ENTRY_TTL_SECONDS;
-
-	for (let record in data) {
-		if (type(record) != 'object')
-			return INVALID;
-
-		const event_id = safe_text(record.eventId,
-			DISCOVERY_EVENT_ID_MAX_LENGTH);
-		const smdp = safe_text(record.rspServerAddress, 255);
-
-		if (event_id === null || !length(event_id) || !valid_smdp(smdp))
-			return INVALID;
-
-		const dedupe_key = event_id + '\n' + smdp;
-
-		if (seen[dedupe_key])
-			continue;
-
-		seen[dedupe_key] = true;
-
-		let entry_id = null;
-
-		for (let attempt = 0; attempt < 8; attempt++) {
-			const candidate = random_secret_token();
-
-			if (candidate !== null && !entries[candidate]) {
-				entry_id = candidate;
-				break;
-			}
-		}
-
-		if (entry_id === null)
-			return DISCOVERY_ENTROPY_FAILED;
-
-		entries[entry_id] = {
-			event_id,
-			smdp,
-			imei,
-			expires_at,
-			claim_id: null
-		};
-		push(entry_order, entry_id);
-		push(response, { entry_id, smdp });
-	}
-
-	clear_discovery_entries();
-	discovery_entries = entries;
-	discovery_entry_order = entry_order;
-
-	if (length(entry_order) && !schedule_discovery_expiry()) {
-		wipe_discovery_entries();
-		return DISCOVERY_STORAGE_FAILED;
-	}
-
-	return response;
-}
-
 function normalize_profiles(data) {
 	const profiles = [];
-	let icon_bytes = 0;
 
 	if (type(data) != 'array')
 		return INVALID;
@@ -821,7 +553,7 @@ function normalize_profiles(data) {
 		if (iccid === null && aid === null)
 			continue;
 
-		const normalized = {
+		push(profiles, {
 			iccid,
 			isdpAid: aid,
 			profileState: safe_text(profile.profileState, 32),
@@ -829,16 +561,7 @@ function normalize_profiles(data) {
 			serviceProviderName: safe_text(profile.serviceProviderName, 128),
 			profileName: safe_text(profile.profileName, 128),
 			profileClass: safe_text(profile.profileClass, 32)
-		};
-		const icon = normalize_profile_icon(profile.iconType, profile.icon,
-			PROFILE_ICON_TOTAL_MAX_BYTES - icon_bytes);
-
-		if (icon !== null) {
-			normalized.icon = icon.icon;
-			icon_bytes += icon.bytes;
-		}
-
-		push(profiles, normalized);
+		});
 
 		if (length(profiles) >= 128)
 			break;
@@ -914,8 +637,6 @@ function operation_error(kind) {
 		return 'Unable to read eSIM profiles.';
 	case 'notifications':
 		return 'Unable to read eUICC notifications.';
-	case 'discovery':
-		return 'Unable to discover available eSIM profiles.';
 	case 'set_default_smdp':
 		return 'Unable to set the default SM-DP+ address.';
 	case 'enable':
@@ -974,7 +695,7 @@ function operation_reason(kind, data, stage) {
 	}
 }
 
-function normalize_lpa(record, kind, context) {
+function normalize_lpa(record, kind) {
 	const payload = record?.payload;
 
 	if (type(payload) != 'object' || type(payload.code) != 'int')
@@ -1010,18 +731,11 @@ function normalize_lpa(record, kind, context) {
 	case 'notifications':
 		data = normalize_notifications(payload.data);
 		break;
-	case 'discovery':
-		data = normalize_discovery(payload.data, context?.imei);
-		break;
 	default:
 		/* Mutating lpac commands return null.  Never forward unexpected data. */
 		data = null;
 		break;
 	}
-
-	if (data === DISCOVERY_ENTROPY_FAILED || data === DISCOVERY_STORAGE_FAILED)
-		return failure('execution_failed',
-			'Unable to protect the discovered profile results.');
 
 	if (data === INVALID)
 		return failure('invalid_response',
@@ -1030,7 +744,7 @@ function normalize_lpa(record, kind, context) {
 	return success(data);
 }
 
-function parse_lpac_output(output, kind, context) {
+function parse_lpac_output(output, kind) {
 	let terminal = null;
 	let driver_record = null;
 
@@ -1068,7 +782,7 @@ function parse_lpac_output(output, kind, context) {
 				'lpac did not return a driver list.');
 
 	return terminal !== null
-		? normalize_lpa(terminal, kind, context)
+		? normalize_lpa(terminal, kind)
 		: failure('invalid_response',
 			'lpac did not return a terminal JSON result.');
 }
@@ -1784,26 +1498,16 @@ function prepare_download_pipes() {
 	}
 }
 
-function restore_download_claim(options) {
-	if (options?.claim)
-		restore_discovery_entry(options.claim.entry_id,
-			options.claim.claim_id);
-}
-
-function start_download(params, options) {
-	options = options || {};
-
-	const preflight = options.preflight_done ? null : download_start_preflight();
+function start_download(params) {
+	const preflight = download_start_preflight();
 
 	if (preflight !== null) {
-		restore_download_claim(options);
 		return preflight;
 	}
 
-	const decision_token = options.decision_token || random_secret_token();
+	const decision_token = random_secret_token();
 
 	if (!valid_secret_token(decision_token)) {
-		restore_download_claim(options);
 		return failure('execution_failed',
 			'Unable to create a secure download decision token.');
 	}
@@ -1811,7 +1515,6 @@ function start_download(params, options) {
 	const lock_state = acquire_lock();
 
 	if (!lock_state.handle) {
-		restore_download_claim(options);
 		return lock_state.result;
 	}
 
@@ -1820,7 +1523,6 @@ function start_download(params, options) {
 
 	if (!pipes) {
 		release_lock(lock_handle);
-		restore_download_claim(options);
 		return failure('execution_failed',
 			'Unable to prepare secure lpac communication pipes.');
 	}
@@ -1844,7 +1546,6 @@ function start_download(params, options) {
 		close_file(pipes.input_writer);
 		close_file(pipes.output_reader);
 		release_lock(lock_handle);
-		restore_download_claim(options);
 		return failure('execution_failed',
 			'Unable to prepare secure lpac communication descriptors.');
 	}
@@ -1961,7 +1662,6 @@ function start_download(params, options) {
 	if (!download_process) {
 		clear_download_runtime(id);
 		download_job = null;
-		restore_download_claim(options);
 		return failure('execution_failed',
 			'Unable to start the lpac download process.');
 	}
@@ -1975,9 +1675,6 @@ function start_download(params, options) {
 		download_job.pid = null;
 	}
 
-	if (options.claim)
-		finalize_discovery_entry(options.claim.entry_id,
-			options.claim.claim_id);
 
 	try {
 		if (download_timer.set(DOWNLOAD_TIMEOUT_MS) !== true)
@@ -2115,7 +1812,7 @@ function respond_download_preview(id, decision_token, accept) {
 	});
 }
 
-function run_lpac(request, params, kind, needs_lock, context) {
+function run_lpac(request, params, kind, needs_lock) {
 	if (kind != 'version' && kind != 'drivers' && read_config() === null)
 		return failure('invalid_config',
 			'The installed lpac configuration is missing or invalid.');
@@ -2158,7 +1855,7 @@ function run_lpac(request, params, kind, needs_lock, context) {
 						'The lpac process returned no execution result.');
 				}
 				else {
-					result = parse_lpac_output(reply.stdout, kind, context);
+					result = parse_lpac_output(reply.stdout, kind);
 
 					if (type(reply.code) != 'int')
 						result = failure('execution_failed',
@@ -2442,33 +2139,6 @@ const methods = {
 		}
 	},
 
-	discover_profiles: {
-		args: { smds: '', imei: '' },
-		call: function(request) {
-			const smds = optional_text(request.args?.smds, 255);
-			const imei = optional_text(request.args?.imei, 16);
-
-			if (smds === null || imei === null ||
-			    (length(smds) && !valid_smdp(smds)) ||
-			    (length(imei) && !valid_imei(imei)))
-				return failure('invalid_argument',
-					'The SM-DS address or IMEI is invalid.');
-
-			const params = [ 'profile', 'discovery', '-j' ];
-
-			if (length(smds))
-				push(params, '-s', smds);
-
-			if (length(imei))
-				push(params, '-i', imei);
-
-			/* A new valid request invalidates all previously discovered secrets. */
-			clear_discovery_entries();
-
-			return run_lpac(request, params, 'discovery', true, { imei });
-		}
-	},
-
 	download_profile: {
 		args: {
 			mode: '',
@@ -2490,12 +2160,10 @@ const methods = {
 				activation_code = normalize_activation_code(activation_code);
 
 				if (activation_code !== null)
-					activation_code = optional_text(activation_code,
-						ACTIVATION_CODE_MAX_LENGTH);
+					activation_code = optional_text(activation_code, 4096);
 			}
 			else {
-				activation_code = optional_text(activation_code,
-					ACTIVATION_CODE_MAX_LENGTH);
+				activation_code = optional_text(activation_code, 4096);
 			}
 
 			if (activation_code === null || smdp === null || matching_id === null ||
@@ -2546,56 +2214,6 @@ const methods = {
 				push(params, '-c', confirmation_code);
 
 			return start_download(params);
-		}
-	},
-
-	download_discovered_profile: {
-		args: { entry_id: '', confirmation_code: '' },
-		call: function(request) {
-			const entry_id = request.args?.entry_id;
-			const confirmation_code = optional_text(
-				request.args?.confirmation_code, 255);
-
-			if (!valid_secret_token(entry_id) || confirmation_code === null)
-				return failure('invalid_argument',
-					'The discovered profile entry or confirmation code is invalid.');
-
-			const preflight = download_start_preflight();
-
-			if (preflight !== null)
-				return preflight;
-
-			const decision_token = random_secret_token();
-
-			if (!valid_secret_token(decision_token))
-				return failure('execution_failed',
-					'Unable to create a secure download decision token.');
-
-			const entry = claim_discovery_entry(entry_id, decision_token);
-
-			if (!entry)
-				return failure('entry_unavailable',
-					'The discovered profile entry is expired or unavailable.');
-
-			const params = [
-				'profile', 'download', '-p', '-s', entry.smdp,
-				'-m', entry.event_id
-			];
-
-			if (length(entry.imei))
-				push(params, '-i', entry.imei);
-
-			if (length(confirmation_code))
-				push(params, '-c', confirmation_code);
-
-			return start_download(params, {
-				preflight_done: true,
-				decision_token,
-				claim: {
-					entry_id,
-					claim_id: decision_token
-				}
-			});
 		}
 	},
 

@@ -9,38 +9,23 @@ wrapper.
 ## Scope
 
 - Show the installed lpac version, compiled drivers, and eUICC information.
-- Change the persistent default SM-DP+ address from Overview with an explicit
-  confirmation and immediate eUICC readback.
+- Change the persistent default SM-DP+ address with explicit confirmation and
+  exact eUICC readback.
 - List, enable, disable, rename, and delete profiles.
-- Discover pending orders through SM-DS and open the matching EventID/server
-  pair without exposing that matching credential to the browser.
 - Download a profile with a complete LPA activation code, a locally decoded QR
-  image, manual parameters, or a discovery result, with a mandatory live
-  metadata preview before installation.
-- Display bounded PNG/JPEG profile icons with a neutral malformed-image fallback.
+  image, or the non-interactive manual parameters supported by upstream lpac;
+  every path pauses for provider-metadata review before installation.
 - List, process to the provider, and explicitly remove pending eUICC
   notifications, including sequence zero.
 - Configure the official AT, uqmi, MBIM, and PC/SC backends through validated
   RPC methods.
 
-The Download view accepts a complete LPA string and the upstream SM-DP+,
-matching-ID, IMEI, and confirmation-code parameters. It also invokes detailed
-`lpac profile discovery -j`; the backend retains each secret EventID and the
-original IMEI for five minutes and gives the browser only a random opaque entry
-identifier plus its validated display server. Harmless whitespace and Unicode formatting marks
+The Download view mirrors `lpac profile download`: it accepts a complete LPA
+string and the non-interactive upstream SM-DP+, matching-ID, IMEI, and
+confirmation-code parameters. Harmless whitespace and Unicode formatting marks
 copied around the activation string are removed, while formatting marks inside
 the activation data remain invalid. This accommodates copy-and-paste artifacts
 without silently changing the credential itself.
-
-Overview displays the default SM-DP+ address read from the eUICC. With write
-permission, its Change action accepts only a nonempty host or bracketed IPv6
-address with an optional valid port. It shows the old and new values before
-calling the typed update RPC and then calls `get_info` again. The UI reports
-success only when that readback exactly matches the requested address; a
-mismatch or failed readback remains a warning. This is persistent eUICC state,
-not UCI configuration, and it determines the server used by a manual download
-when its SM-DP+ field is empty. The form intentionally does not expose clearing
-the default.
 
 QR images are decoded locally in the browser and are never uploaded to the
 router. The view presents two explicit actions: a normal PNG, JPEG, or WebP file
@@ -49,32 +34,43 @@ picker without a capture hint, and a separate camera action using
 scanner, so a browser may still present its normal chooser. Both paths share the
 same 8 MiB file, 40-megapixel image, bounded-canvas, and activation-code checks.
 
-Activation, matching, EventID, and confirmation values are credentials. They are kept
-out of LuCI logs, status records, notifications, and confirmation dialogs, and
-raw lpac output and stderr are never returned. User-entered values still exist in browser and RPC
-memory and become arguments of the privileged lpac process, where privileged
-local process inspection can observe them. They also travel over the transport
-used for the LuCI session, so operators should use HTTPS or an otherwise trusted
-administrative network.
+Every request uses `lpac profile download -p`. The backend keeps that same
+authenticated process paused at lpac's preview prompt and accepts one explicit
+Install or Cancel decision before PrepareDownload. The bundled `0050` patch
+makes the prompt unconditional, so a provider that supplies no metadata still
+requires the user to choose `Install without metadata` or cancel.
 
-The network operations use the HTTP backend configured for the installed lpac
-package. LuCI does not replace that transport. The required bundled
-`lpac 2.3.0.444-r1` package explicitly enables libcurl peer and hostname
-verification, depends on OpenWrt's CA bundle, and backports the untrusted server
-response hardening from [estkme-group/lpac#444](https://github.com/estkme-group/lpac/pull/444).
-A wrong clock, missing trust anchor, invalid chain, or hostname mismatch fails
-closed; the UI does not offer an insecure override. Provider response bodies
-are capped at 16 MiB with checked allocation arithmetic to protect constrained
-router memory before JSON and base64 decoding.
+Activation, matching, and confirmation values are credentials. They are kept
+out of LuCI logs, status records, notifications, and confirmation dialogs.
+stderr is discarded; bounded NDJSON stdout is parsed only for the preview
+protocol and raw records are never returned. The credentials still exist in
+browser and RPC memory and become arguments of the privileged lpac process,
+where privileged local process inspection can observe them. They also travel
+over the transport used for the LuCI session, so operators should use HTTPS or
+an otherwise trusted administrative network.
+
+The resulting network operation uses the HTTP backend configured for the
+installed lpac package. LuCI does not replace, override, or independently verify
+that transport. In particular, lpac v2.3.0 explicitly disables curl peer and
+hostname verification in
+[driver/http/curl.c](https://github.com/estkme-group/lpac/blob/v2.3.0/driver/http/curl.c#L90-L91).
+An active on-path attacker can therefore impersonate the SM-DP+ endpoint; local
+QR decoding does not mitigate this later network boundary. This behavior is
+inherited rather than introduced by the LuCI page. The merged
+[estkme-group/lpac#444](https://github.com/estkme-group/lpac/pull/444) hardens
+handling of an untrusted server response but does not enable TLS verification.
 
 Process sends one pending notification to its provider and optionally removes
-the eUICC record only after successful delivery. Process all takes a browser
-snapshot and invokes those single operations in sequence, stopping on the first
-failure so partial completion is explicit. The backend distinguishes retrieval
-failure, unknown provider outcome, and successful provider delivery followed by
-local removal failure. The separate Remove action never contacts the provider.
-Sequence `0` is supported through the strict uint32 parser backported from and
-hardened beyond [estkme-group/lpac#429](https://github.com/estkme-group/lpac/pull/429).
+the eUICC record after successful delivery. Process all snapshots the current
+table and invokes those single operations in sequence, stopping at the first
+failure so partial completion remains explicit. Retrieval failure, unknown
+provider outcome, and successful provider delivery followed by local removal
+failure are reported separately. The standalone Remove action never contacts
+the provider. The bundled notification patches support sequence `0` and reject
+non-canonical or overflowing uint32 arguments.
+
+SM-DS discovery, direct discovered-order download, and profile icons are
+deferred from this staged branch.
 
 lpac 2.3.0 may report `v0.0.0-unknown` because its generated version header
 collides with an applet header and release tarballs lack Git metadata. This is
@@ -104,45 +100,40 @@ The browser calls a small typed `luci.lpac` rpcd/ucode facade. The facade:
 - serializes access to the eUICC with a non-blocking file lock;
 - delegates one-shot operations to rpcd `file.exec` using argv arrays;
 - runs the longer profile preview/download as a supervised `uloop.process()`
-  group with anonymous decision/output pipes;
-- exposes a numeric job identifier plus a one-shot decision token only in the
-  owning start response;
+  process group and exposes only a short-lived numeric status identifier;
 - validates the official UCI settings before every execution;
 - invokes the packaged `/usr/bin/lpac` entrypoint with positional argv;
-- parses bounded lpac newline-delimited JSON and returns only normalized
-  discovery, preview, profile, and notification fields;
-- changes the default SM-DP+ address only through fixed `chip defaultsmdp`
-  arguments and verifies it with a fresh normalized `chip info` readback;
+- parses bounded lpac newline-delimited JSON and returns only normalized preview
+  metadata to the tab holding the one-shot decision capability;
+- changes the default SM-DP+ address only through a fixed typed RPC and checks
+  the result through a fresh normalized `chip info` readback;
 - does not return raw APDU, HTTP, activation-code, or confirmation-code data.
 
 The download supervisor uses `/usr/bin/setsid` to place a fixed `/bin/sh`
 launcher, the packaged wrapper, lpac, and any helper descendants in one process
 group. The launcher program is constant, invokes only its positional `"$@"`
-arguments, and never interpolates request values into shell source. stderr is
-discarded. stdout is drained through a bounded fragmented-NDJSON parser solely
-to detect phases and normalize preview metadata. An anonymous stdin pipe carries
-exactly one `y` or `n` decision; inherited unused ends are closed so rpcd death
-becomes EOF and cannot approve installation. The child receives only a fixed
-system `PATH`.
+arguments, discards stderr, and connects stdin/stdout to anonymous pipe
+descriptors. Request values are never interpolated into shell source. The child
+receives only a fixed system `PATH`. This design does not use `uloop.task()` or
+`fs.dup2()`.
+
+The output watcher reconstructs fragmented NDJSON, bounds total bytes, line
+length, and line count, and recognizes only the metadata, preview, protected
+post-gate phases, and terminal result needed to verify the session. Preview
+metadata is allowlisted to ICCID, profile/provider name, and profile class;
+profile icons and unknown fields are discarded. Malformed, truncated,
+oversized, duplicated, or out-of-order protocol data fails closed.
 
 OpenWrt configures rpcd command execution with a 30-second timeout. The
-one-shot RPC methods retain that limit. Profile download instead has its own
-operation watchdog and a shorter decision deadline while lpac waits at preview.
-On expiry the backend first rejects a pending preview where possible and sends `SIGKILL` to the
-entire supervised process group, not merely the OpenWrt shell wrapper, then
-waits for the process callback before publishing terminal state. A timeout or
-signal after approval is reported as an unknown outcome because it can race
-with the final eUICC installation step. Failure or cancellation before approval
-cannot install and is reported separately. The application does not change the
-system-wide rpcd timeout.
-
-If rpcd itself exits while lpac is waiting for preview, closing the parent-only
-pipe writer produces EOF and the patched lpac cancels before PrepareDownload.
-The uloop watchdog disappears with rpcd, so a provider cancellation request
-that then hangs can keep the inherited operation lock until that process exits
-or an administrator intervenes. Subsequent LuCI calls remain busy rather than
-racing it; no shell-side sleeper is used because it could retain pipe/lock
-descriptors or become orphaned.
+one-shot RPC methods retain that limit. Profile download uses a ten-minute
+operation watchdog and a two-minute preview-decision window. A decision timeout
+first sends a rejection; cancellation gets a short grace period before the
+entire process group is killed. After approval, the operation receives a fresh
+ten-minute ceiling. The backend waits for both process exit and real output EOF
+before publishing a terminal state. A timeout or protocol failure after an
+approval attempt is reported as an unknown outcome because it can race with
+installation. The Profiles view remains authoritative for verification. The
+application does not change the system-wide rpcd timeout.
 
 One-shot eUICC operations are launched through BusyBox `flock`. Downloads
 acquire the same lock directly and deliberately pass the descriptor to the
@@ -159,25 +150,15 @@ Serialization applies to calls made through this application. Direct CLI calls
 or other managers must voluntarily use `/var/run/luci-lpac.lock` to avoid racing
 the LuCI backend.
 
-The status RPC accepts job identifier `0` as a request for the currently running
-download. It returns only sanitized phase data unless the caller supplies the
-decision token from the owning start response. Only that exact token can reveal
-the normalized preview or submit a decision; it is never returned by current-job
-discovery or stored in browser site storage. A job found after a lost response
-is therefore monitored but conservatively treated as uncertain and can only
-cancel at the preview deadline, never be authorized by the rediscovering tab.
-As soon as a start response becomes ambiguous, the browser stores a versioned
-verification marker in origin-local site storage. The marker contains only its
-phase and a fresh generation tag; separate observation flags record whether
-Profiles and Notifications were loaded successfully for that generation. A
-stale tab therefore cannot clear a newer ambiguity marker. This state never
-contains activation data, confirmation data, a profile identifier, or a job
-identifier. The submitted form is preserved on the current page, while the retry
-block remains across reloads and tabs until the uncertain operation is known to
-have stopped and the operator has successfully opened both views. Corrupt or
-unavailable site storage fails closed.
-A job that was explicitly rejected as busy is identified as an existing operation
-and never clears the unsent form.
+The direct start response returns a random decision token in addition to the job
+identifier. Only that initiating tab may retrieve normalized metadata or submit
+one decision. Job identifier `0` remains a public current-job query and never
+returns the token or preview. The Download view uses it when entering the page
+and after an ambiguous start response, allowing safe monitoring without gaining
+approval authority. A job found after a lost response is conservatively treated
+as uncertain; the form is preserved and retry stays blocked until the operator
+checks Profiles and Notifications. A definitively busy request is treated as an
+existing external operation and never clears the unsent form.
 
 Job state and the small terminal-history ring are kept only in the rpcd process;
 they do not survive an rpcd restart, and a job that completed while no page
@@ -224,24 +205,23 @@ git diff --check
   > applications/luci-app-lpac/po/templates/lpac.pot
 ```
 
-OpenWrt package compilation for this repository is performed only by the
-GitHub Actions SDK and bundled-package workflows.
+OpenWrt package compilation for this repository is performed by the GitHub
+Actions SDK and bundled-package workflows.
 
 Real-device testing is required for every APDU backend that is claimed in a
 pull request. Automated download tests must use synthetic values or an
 explicitly public, non-secret test profile and must never contact a provider or
 consume a private or single-use activation code. Process
 supervision tests must cover descendant termination, inherited-lock lifetime,
-timeout outcome reporting, current-job recovery, and the absence of raw child
-output. Frontend tests must exercise both the ordinary file picker and the
-separate camera-capture path. A live provider download requires explicit owner
-approval and before/after profile and network-state observations.
+timeout outcome reporting, fragmented preview pipes, fail-closed cancellation,
+current-job recovery, and the absence of raw child output. Frontend tests must
+exercise both the ordinary file picker and the separate camera-capture path as
+well as the owner-only preview decision. A live provider download requires
+explicit owner approval and before/after profile and network-state observations.
 
 Read and write validation was performed on OpenWrt 25.12.5 with a Fibocom
-L850-GL. A disposable Speedtest profile was decoded and installed successfully
-through both the separate camera and existing-file QR controls using the prior
-download supervisor. This validates that combination only and does not claim
-support for every modem, eUICC, backend, or firmware. The new SM-DS,
-interactive-preview, TLS-verification, and provider-notification paths still
-require separately authorized live checks after their final CI artifact is
+L850-GL. A disposable Speedtest profile was decoded and installed through both
+QR controls using an earlier compatible bundle. This validates that combination
+only. The staged notification-processing and persistent default-SM-DP+ paths
+still require separately authorized live checks after a final CI artifact is
 reviewed.
